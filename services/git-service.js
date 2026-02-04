@@ -260,39 +260,48 @@ class GitService {
 
   // Get context for LLM intent parsing
   async getContext() {
-    let statusSource = { success: false, data: {} };
+    // Run fast branch check and full status in parallel
+    const branchPromise = window.electronAPI.gitCurrentBranch();
+    const statusPromise = this.getStatus();
 
-    try {
-      statusSource = await this.getStatus();
-    } catch (e) {
-      console.warn('[Git] getStatus failed:', e);
+    // We want to be as fast as possible for the UI "Converting..." step
+    // So we race them, but we prioritize the lightweight branch check
+
+    const [branchResult, statusResult] = await Promise.allSettled([
+      branchPromise,
+      statusPromise
+    ]);
+
+    let branch = 'HEAD';
+    let hasContext = false;
+    let stats = { modified: 0, staged: 0, untracked: 0, clean: false };
+
+    // 1. Try to get branch from fast check (most reliable for speed)
+    if (branchResult.status === 'fulfilled' && branchResult.value.success) {
+      branch = branchResult.value.branch;
+      hasContext = true;
     }
 
-    let branch = statusSource.data?.branch;
-
-    // Fallback: If status failed or didn't return a branch, try fast check
-    if (!branch) {
-      try {
-        const result = await window.electronAPI.gitCurrentBranch();
-        if (result.success) {
-          branch = result.branch;
-          console.log('[Git] Recovered branch name via fallback:', branch);
-        }
-      } catch (e) {
-        console.warn('[Git] Fallback branch check failed:', e);
-      }
+    // 2. Try to get full stats if available (might have timed out)
+    if (statusResult.status === 'fulfilled' && statusResult.value.success) {
+      const s = statusResult.value.data;
+      if (!hasContext) branch = s.branch; // Setup branch if fast check failed
+      stats = {
+        modified: s.modified,
+        staged: s.staged,
+        untracked: s.untracked,
+        clean: s.clean
+      };
+      hasContext = true;
+    } else if (statusResult.status === 'fulfilled') {
+      // It finished but failed (non-zero exit) or timed out
+      console.warn('[Git] Status check failed:', statusResult.value.error);
     }
-
-    // Default to HEAD if absolutely nothing works (safer than 'main')
-    branch = branch || 'HEAD';
 
     return {
-      hasRepository: statusSource.success || (branch !== 'HEAD'),
-      branch: branch,
-      modified: statusSource.data?.modified || 0,
-      staged: statusSource.data?.staged || 0,
-      untracked: statusSource.data?.untracked || 0,
-      isClean: statusSource.data?.clean || false
+      hasRepository: hasContext || (branch !== 'HEAD'),
+      branch: branch || 'HEAD',
+      ...stats
     };
   }
 }

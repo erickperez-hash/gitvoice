@@ -43,6 +43,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getConfiguredServices: () => ipcRenderer.invoke('get-configured-services'),
   testConnection: (url) => ipcRenderer.invoke('test-connection', url),
 
+  // GitHub Auth
+  githubAuthStart: (clientId) => ipcRenderer.invoke('github-auth-start', clientId),
+  githubAuthPoll: (data) => ipcRenderer.invoke('github-auth-poll', data),
+
   // Git user config
   getGitUser: () => ipcRenderer.invoke('get-git-user'),
   setGitUser: (data) => ipcRenderer.invoke('set-git-user', data),

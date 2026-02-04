@@ -519,22 +519,25 @@ ipcMain.handle('save-credential', async (event, { service, token, username, pass
         name: validation.name
       };
     } else {
-      // Username/password authentication
+      // Username/password authentication (For GitHub, password = PAT)
       if (!username || !password) {
         return { success: false, error: 'Username and password are required' };
       }
 
       // Validate username/password by testing with a simple Git command
+      // We pass 'password' as the token/password for validation
       const validation = await trampoline.validateUsernamePassword(service, username, password);
       if (!validation.valid) {
         return { success: false, error: validation.error || 'Invalid credentials' };
       }
 
       // Save username/password credential
+      // IMPORTANT: For GitHub, we treat the "password" (PAT) as a token 
+      // so trampoline will actually use it for authentication.
       trampoline.setCredential(service, {
-        authType: 'password',
+        authType: 'password', // Keep track it was entered as password
+        token: password,      // But save as token so it works with git
         username,
-        password,
         email: email || ''
       });
 
@@ -677,6 +680,15 @@ ipcMain.handle('check-model-status', async (event, modelType) => {
   let modelPath = '';
   let needsUpdate = false;
 
+  const exists = async (p) => {
+    try {
+      await fs.promises.access(p);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   if (modelType === 'stt') {
     // Check for the core config files in the whisper-tiny.en folder
     const requiredFiles = [
@@ -689,20 +701,21 @@ ipcMain.handle('check-model-status', async (event, modelType) => {
       'onnx/decoder_model_merged_quantized.onnx'
     ];
 
-    downloaded = requiredFiles.every(file =>
-      fs.existsSync(path.join(modelsDir, 'whisper-tiny.en', file))
+    const checks = await Promise.all(
+      requiredFiles.map(file => exists(path.join(modelsDir, 'whisper-tiny.en', file)))
     );
+    downloaded = checks.every(result => result);
 
     modelPath = path.join(modelsDir, 'whisper-tiny.en', 'config.json');
 
     // Check if user still has the old single-file model
     const oldPath = path.join(modelsDir, 'whisper-tiny.onnx');
-    if (fs.existsSync(oldPath)) {
+    if (await exists(oldPath)) {
       needsUpdate = true;
     }
   } else if (modelType === 'tts') {
     modelPath = path.join(modelsDir, 'kokoro.onnx');
-    downloaded = fs.existsSync(modelPath);
+    downloaded = await exists(modelPath);
   }
 
   return {
@@ -848,6 +861,27 @@ ipcMain.handle('get-remote-url', async () => {
       success: result.exitCode === 0,
       url: result.stdout.trim()
     };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// GitHub Auth Device Flow
+const githubAuthService = require('./services/github-auth-service');
+
+ipcMain.handle('github-auth-start', async (event, clientId) => {
+  try {
+    githubAuthService.setClientId(clientId);
+    return await githubAuthService.initiateDeviceFlow();
+  } catch (error) {
+    return { error: error.message };
+  }
+});
+
+ipcMain.handle('github-auth-poll', async (event, { deviceCode, interval }) => {
+  try {
+    const token = await githubAuthService.pollForToken(deviceCode, interval);
+    return { success: true, token };
   } catch (error) {
     return { success: false, error: error.message };
   }

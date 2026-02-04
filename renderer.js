@@ -140,6 +140,12 @@ function bindEvents() {
   // Auth type toggle
   elements.authType?.addEventListener('change', handleAuthTypeChange);
 
+  // GitHub Sign In
+  document.getElementById('github-signin-btn')?.addEventListener('click', handleGitHubSignIn);
+  document.getElementById('close-auth-modal')?.addEventListener('click', closeAuthModal);
+  document.getElementById('auth-copy-btn')?.addEventListener('click', copyUserCode);
+  document.getElementById('auth-open-browser-btn')?.addEventListener('click', openGitHubLogin);
+
   // Settings
   elements.settingsBtn?.addEventListener('click', openSettings);
   document.getElementById('close-settings')?.addEventListener('click', closeSettings);
@@ -300,6 +306,120 @@ function handleAuthTypeChange() {
   } else {
     elements.tokenAuthFields.style.display = 'none';
     elements.passwordAuthFields.style.display = 'block';
+  }
+}
+
+// GitHub Device Flow
+let authPollInterval = null;
+let currentVerificationUri = '';
+
+async function handleGitHubSignIn() {
+  // Get custom client ID or use default (GitHub CLI public ID)
+  const customClientId = document.getElementById('github-client-id').value.trim();
+
+  // NOTE: '178c6fc778ccc68e1d6a' is the public Client ID for GitHub CLI.
+  // We use it here to provide a seamless "Connect" experience for users without
+  // requiring them to create their own OAuth App.
+  const effectiveClientId = customClientId || '178c6fc778ccc68e1d6a';
+
+  const modal = document.getElementById('device-auth-modal');
+  const userCodeEl = document.getElementById('device-user-code');
+  const pollStatusEl = document.getElementById('auth-poll-status');
+
+  modal.classList.remove('hidden');
+  userCodeEl.textContent = 'Loading...';
+  pollStatusEl.textContent = 'Requesting code from GitHub...';
+
+  try {
+    const result = await window.electronAPI.githubAuthStart(effectiveClientId);
+
+    if (result.error) {
+      alert('Error initializing GitHub Login: ' + result.error);
+      modal.classList.add('hidden');
+      return;
+    }
+
+    // Show code
+    userCodeEl.textContent = result.userCode;
+    currentVerificationUri = result.verificationUri;
+    pollStatusEl.textContent = 'Waiting for you to authorize...';
+
+    // Start polling
+    pollForGitHubToken(result.deviceCode, result.interval);
+
+  } catch (error) {
+    console.error('Auth Error:', error);
+    alert('Failed to start authentication');
+    modal.classList.add('hidden');
+  }
+}
+
+function closeAuthModal() {
+  const modal = document.getElementById('device-auth-modal');
+  modal.classList.add('hidden');
+  if (authPollInterval) {
+    clearInterval(authPollInterval);
+    authPollInterval = null;
+  }
+}
+
+function copyUserCode() {
+  const code = document.getElementById('device-user-code').textContent;
+  navigator.clipboard.writeText(code);
+  const btn = document.getElementById('auth-copy-btn');
+  const originalText = btn.innerHTML;
+  btn.innerHTML = '<span class="icon">&#10004;</span> Copied!';
+  setTimeout(() => btn.innerHTML = originalText, 2000);
+}
+
+function openGitHubLogin() {
+  if (currentVerificationUri) {
+    window.electronAPI.openExternal(currentVerificationUri);
+  }
+}
+
+async function pollForGitHubToken(deviceCode, interval) {
+  if (authPollInterval) clearInterval(authPollInterval);
+
+  const pollStatusEl = document.getElementById('auth-poll-status');
+  const credentialStatusEl = document.getElementById('credential-status');
+
+  pollStatusEl.textContent = 'Waiting for authorization in browser...';
+
+  try {
+    const result = await window.electronAPI.githubAuthPoll({ deviceCode, interval });
+
+    if (result.success) {
+      pollStatusEl.textContent = 'Success! Saving credentials...';
+
+      // Save the token directly via the API
+      const service = document.getElementById('git-service').value;
+      const saveResult = await window.electronAPI.saveCredential({
+        service,
+        authType: 'token',
+        token: result.token
+      });
+
+      if (saveResult.success) {
+        pollStatusEl.textContent = 'Credentials saved!';
+        credentialStatusEl.innerHTML = `<span class="success">✓ Connected as ${saveResult.username || 'GitHub User'}</span>`;
+
+        // Update services list
+        const services = await window.electronAPI.getConfiguredServices();
+        updateCredentialStatus(services);
+
+        setTimeout(() => {
+          closeAuthModal();
+        }, 1000);
+      } else {
+        pollStatusEl.textContent = 'Failed to save credentials: ' + saveResult.error;
+      }
+
+    } else {
+      pollStatusEl.textContent = 'Authentication failed: ' + result.error;
+    }
+  } catch (e) {
+    pollStatusEl.textContent = 'Error: ' + e.message;
   }
 }
 async function browseRepository() {
@@ -1013,20 +1133,27 @@ async function testCredential() {
   statusEl.innerHTML = '<span class="loading">Testing connection...</span>';
 
   try {
+    // Try to get remote URL from current repository
+    let testUrl = null;
     const remoteResult = await window.electronAPI.getRemoteUrl();
-    if (!remoteResult.success) {
-      statusEl.innerHTML = '<span class="error">No remote URL configured</span>';
-      return;
+
+    if (remoteResult.success && remoteResult.url) {
+      testUrl = remoteResult.url;
+    } else {
+      // No repository selected - use a default GitHub test URL
+      // This allows users to verify their credentials before cloning
+      testUrl = 'https://github.com/git/git.git';
+      console.log('[Test] No repository selected, testing with default GitHub URL');
     }
 
-    const testResult = await window.electronAPI.testConnection(remoteResult.url);
+    const testResult = await window.electronAPI.testConnection(testUrl);
     if (testResult.success) {
-      statusEl.innerHTML = '<span class="success">Connection successful!</span>';
+      statusEl.innerHTML = '<span class="success">✓ Connection successful!</span>';
     } else {
-      statusEl.innerHTML = `<span class="error">Connection failed: ${testResult.error}</span>`;
+      statusEl.innerHTML = `<span class="error">✗ Connection failed: ${testResult.error}</span>`;
     }
   } catch (error) {
-    statusEl.innerHTML = `<span class="error">Error: ${error.message}</span>`;
+    statusEl.innerHTML = `<span class="error">✗ Error: ${error.message}</span>`;
   }
 }
 

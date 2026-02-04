@@ -307,15 +307,28 @@
               <option value="bitbucket">Bitbucket</option>
             </select>
           </div>
-          <div class="setting-item">
+
+          <!-- GitHub OAuth Section -->
+          <div id="github-oauth-section">
+            <div class="setting-item" style="margin-bottom: 5px;">
+              <button id="github-signin-btn" class="btn btn-primary"
+                style="width: 100%; display: flex; justify-content: center; align-items: center; gap: 8px;">
+                <span class="icon" style="font-size: 1.2em;">&#9989;</span> Sign in with GitHub
+              </button>
+            </div>
+            <!-- REMOVED - OR - divider -->
+          </div>
+
+          <!-- Hidden manual fields as per request -->
+          <div class="setting-item" style="display: none;">
             <label for="auth-type">Authentication Type</label>
             <select id="auth-type">
-              <option value="token">Personal Access Token</option>
-              <option value="password">Username & Password</option>
+              <option value="password" selected>Username & Password</option>
+              <option value="token">Personal Access Token (Direct)</option>
             </select>
           </div>
 
-          <div id="token-auth-fields">
+          <div id="token-auth-fields" style="display: none;">
             <div class="setting-item">
               <label for="git-token">Access Token</label>
               <input type="password" id="git-token" placeholder="Enter your token">
@@ -328,17 +341,33 @@
               <input type="text" id="git-username" placeholder="GitHub username">
             </div>
             <div class="setting-item">
-              <label for="git-password">Password / App Password</label>
-              <input type="password" id="git-password" placeholder="Your password">
+              <label for="git-password">Password (or Personal Access Token)</label>
+              <input type="password" id="git-password" placeholder="Your password or PAT">
+            </div>
+            <div class="setting-hint"
+              style="margin-top: -10px; margin-bottom: 10px; font-size: 0.85em; color: var(--text-muted);">
+              Note: GitHub requires a <strong>Personal Access Token (PAT)</strong> or App Password instead of your
+              account password.
             </div>
           </div>
 
+          <!-- Advanced optional settings - HIDDEN -->
+          <details style="margin-bottom: 15px; font-size: 0.9em; display: none;">
+            <summary style="cursor: pointer; color: var(--text-muted);">Advanced: Custom Client ID</summary>
+            <div class="setting-item" style="margin-top: 10px;">
+              <label for="github-client-id">OAuth Client ID</label>
+              <input type="text" id="github-client-id" placeholder="Optional: Use your own App Client ID"
+                value="178c6fc778ccc68e1d6a">
+            </div>
+          </details>
+
           <div class="setting-item">
-            <button id="save-token" class="btn btn-secondary">Save Credentials</button>
-            <button id="test-token" class="btn btn-secondary">Test Connection</button>
+            <!-- Hidden Save Button (Auto-save is used) -->
+            <button id="save-token" class="btn btn-secondary" style="display: none;">Save Credentials</button>
+            <button id="test-token" class="btn btn-secondary" style="width: 100%;">Test Connection</button>
           </div>
-          <div id="credential-status" class="credential-status"></div>
-          <div class="setting-hint">
+          <div id="credential-status" class="credential-status" style="margin-top: 10px; font-weight: bold;"></div>
+          <div class="setting-hint" style="display: none;">
             <a href="#" id="token-help-link">Need help with authentication?</a>
           </div>
         </div>
@@ -456,3 +485,35 @@
 </body>
 
 </html>
+<!-- GitHub Device Auth Modal -->
+<div id="device-auth-modal" class="modal hidden">
+  <div class="modal-overlay"></div>
+  <div class="modal-content" style="max-width: 500px; text-align: center;">
+    <div class="modal-header">
+      <h2>GitHub Sign In</h2>
+      <button class="close-modal" id="close-auth-modal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin-bottom: 20px;">To sign in, copy the code below and enter it on the GitHub page that opens.</p>
+
+      <div style="background: #f1f2f3; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+        <h1 id="device-user-code"
+          style="letter-spacing: 2px; font-family: monospace; color: var(--primary-color); margin: 0;">Loading...</h1>
+      </div>
+
+      <button id="auth-copy-btn" class="btn btn-secondary" style="margin-bottom: 20px;">
+        <span class="icon">&#128203;</span> Copy Code
+      </button>
+
+      <div style="margin-bottom: 20px;">
+        <button id="auth-open-browser-btn" class="btn btn-primary btn-large">
+          Open GitHub Login Page
+        </button>
+      </div>
+
+      <div id="auth-poll-status" style="color: var(--text-muted); font-size: 0.9em; min-height: 20px;">
+        Waiting for you to authorize...
+      </div>
+    </div>
+  </div>
+</div>
