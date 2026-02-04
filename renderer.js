@@ -704,6 +704,12 @@ function cancelCommand() {
 
 function resetVoiceUI() {
   isProcessing = false;
+
+  // Stop services and release resources
+  sttService.stop();
+  audioService.stopListening();
+  audioService.cleanup();
+
   elements.voiceBtn.classList.remove('listening');
   elements.voiceBtn.innerHTML = '<span class="mic-icon">&#127908;</span> Start Voice Command';
   elements.cancelBtn.disabled = true;

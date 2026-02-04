@@ -23,6 +23,15 @@ class AudioService {
 
   async initialize() {
     try {
+      // If we already have an active stream, reuse it
+      if (this.stream && this.stream.active) {
+        console.log('[Audio] Reusing existing stream');
+        return true;
+      }
+
+      // Cleanup any previous instances first
+      this.cleanup();
+
       // Request microphone access
       this.stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -34,6 +43,12 @@ class AudioService {
 
       // Set up audio context for VAD
       this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+      // Handle resuming context if it starts suspended (browsers policy)
+      if (this.audioContext.state === 'suspended') {
+        await this.audioContext.resume();
+      }
+
       this.analyser = this.audioContext.createAnalyser();
       this.analyser.fftSize = 2048;
 
@@ -45,6 +60,21 @@ class AudioService {
       console.error('Failed to initialize audio:', error);
       return false;
     }
+  }
+
+  // ... (startListening ...)
+
+  cleanup() {
+    if (this.stream) {
+      this.stream.getTracks().forEach(track => track.stop());
+      this.stream = null;
+    }
+    if (this.audioContext) {
+      this.audioContext.close();
+      this.audioContext = null;
+    }
+    this.isListening = false;
+    this.isRecording = false;
   }
 
   async startListening() {
