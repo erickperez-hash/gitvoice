@@ -1175,21 +1175,45 @@ async function initializeModels() {
     const statuses = modelDownloader.getModelStatus();
 
     if (sttStatus) {
-      sttStatus.textContent = statuses.stt.downloaded ? 'Downloaded (Offline Mode Ready)' : 'Web Speech API (Internet Required)';
-      if (statuses.stt.downloaded) {
-        sttStatus.classList.add('downloaded');
-        sttService.setUseLocalModel(true);
+      if (statuses.stt.needsUpdate) {
+        sttStatus.textContent = 'Update Required (Incompatible Format)';
+        sttStatus.classList.add('warning');
+        sttStatus.classList.remove('downloaded');
+        if (downloadSttBtn) downloadSttBtn.disabled = false;
+        if (downloadSttBtn) downloadSttBtn.textContent = 'Update Now';
+      } else {
+        sttStatus.textContent = statuses.stt.downloaded ? 'Downloaded (Offline Mode Ready)' : 'Web Speech API (Internet Required)';
+        if (statuses.stt.downloaded) {
+          sttStatus.classList.add('downloaded');
+          sttStatus.classList.remove('warning');
+          sttService.setUseLocalModel(true);
+        }
+        if (downloadSttBtn) {
+          downloadSttBtn.disabled = statuses.stt.downloaded;
+          downloadSttBtn.textContent = statuses.stt.downloaded ? 'Downloaded' : 'Download';
+        }
       }
-      if (downloadSttBtn) downloadSttBtn.disabled = statuses.stt.downloaded;
     }
 
     if (ttsStatus) {
-      ttsStatus.textContent = statuses.tts.downloaded ? 'Downloaded (Offline Mode Ready)' : 'Web Speech Synthesis (Cloud-based)';
-      if (statuses.tts.downloaded) {
-        ttsStatus.classList.add('downloaded');
-        ttsService.setUseLocalModel(true);
+      if (statuses.tts.needsUpdate) {
+        ttsStatus.textContent = 'Update Required';
+        ttsStatus.classList.add('warning');
+        ttsStatus.classList.remove('downloaded');
+        if (downloadTtsBtn) downloadTtsBtn.disabled = false;
+        if (downloadTtsBtn) downloadTtsBtn.textContent = 'Update Now';
+      } else {
+        ttsStatus.textContent = statuses.tts.downloaded ? 'Downloaded (Offline Mode Ready)' : 'Web Speech Synthesis (Cloud-based)';
+        if (statuses.tts.downloaded) {
+          ttsStatus.classList.add('downloaded');
+          ttsStatus.classList.remove('warning');
+          ttsService.setUseLocalModel(true);
+        }
+        if (downloadTtsBtn) {
+          downloadTtsBtn.disabled = statuses.tts.downloaded;
+          downloadTtsBtn.textContent = statuses.tts.downloaded ? 'Downloaded' : 'Download';
+        }
       }
-      if (downloadTtsBtn) downloadTtsBtn.disabled = statuses.tts.downloaded;
     }
   }
 }

@@ -624,18 +624,19 @@ ipcMain.handle('check-model-status', async (event, modelType) => {
 
   let modelPath = path.join(modelsDir, filename);
   let downloaded = fs.existsSync(modelPath);
+  let needsUpdate = false;
 
-  // Backward compatibility check for .bin if .onnx not found
+  // Check for incompatible .bin format if .onnx is missing
   if (!downloaded && modelType === 'stt') {
-    const backupPath = path.join(modelsDir, 'whisper-tiny.bin');
-    if (fs.existsSync(backupPath)) {
-      modelPath = backupPath;
-      downloaded = true;
+    const binPath = path.join(modelsDir, 'whisper-tiny.bin');
+    if (fs.existsSync(binPath)) {
+      needsUpdate = true;
     }
   }
 
   return {
     downloaded,
+    needsUpdate,
     path: modelPath
   };
 });

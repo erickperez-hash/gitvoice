@@ -6,16 +6,16 @@ class ModelDownloader {
     this.models = {
       stt: {
         name: 'Whisper Tiny (ONNX)',
-        url: 'https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/onnx/model_q8.onnx',
+        url: 'https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/onnx/encoder_model_quantized.onnx',
         filename: 'whisper-tiny.onnx',
-        size: '40MB',
+        size: '10MB',
         downloaded: false
       },
       tts: {
-        name: 'Kokoro TTS',
-        url: 'https://huggingface.co/hexgrad/Kokoro-82M/resolve/main/kokoro-v0_19.onnx',
+        name: 'Kokoro TTS (ONNX)',
+        url: 'https://huggingface.co/onnx-community/Kokoro-82M-ONNX/resolve/main/onnx/model_quantized.onnx',
         filename: 'kokoro.onnx',
-        size: '82MB',
+        size: '92MB',
         downloaded: false
       }
     };
@@ -32,6 +32,7 @@ class ModelDownloader {
       for (const modelType of Object.keys(this.models)) {
         const status = await window.electronAPI.checkModelStatus(modelType);
         this.models[modelType].downloaded = status.downloaded;
+        this.models[modelType].needsUpdate = status.needsUpdate || false;
       }
     } catch (error) {
       console.warn('Could not check model status:', error);
@@ -42,11 +43,11 @@ class ModelDownloader {
     return {
       stt: {
         ...this.models.stt,
-        status: this.models.stt.downloaded ? 'downloaded' : 'not-downloaded'
+        status: this.models.stt.needsUpdate ? 'update-required' : (this.models.stt.downloaded ? 'downloaded' : 'not-downloaded')
       },
       tts: {
         ...this.models.tts,
-        status: this.models.tts.downloaded ? 'downloaded' : 'not-downloaded'
+        status: this.models.tts.needsUpdate ? 'update-required' : (this.models.tts.downloaded ? 'downloaded' : 'not-downloaded')
       }
     };
   }
