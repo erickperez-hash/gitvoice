@@ -55,6 +55,13 @@ class AudioService {
       if (!initialized) return false;
     }
 
+    // Ensure AudioContext is running (needed for browser security policies)
+    if (this.audioContext && this.audioContext.state === 'suspended') {
+      console.log('[Audio] Resuming suspended AudioContext');
+      await this.audioContext.resume();
+    }
+
+    console.log(`[Audio] Starting VAD listening (Context: ${this.audioContext?.state})`);
     this.isListening = true;
     this.monitorVAD();
     return true;
@@ -72,18 +79,28 @@ class AudioService {
     const dataArray = new Uint8Array(bufferLength);
     let silenceStart = null;
     let recordingStart = null;
+    let lastHeartbeat = Date.now();
 
     const checkAudio = () => {
       if (!this.isListening) return;
 
-      this.analyser.getByteFrequencyData(dataArray);
+      // Heartbeat log every 5 seconds
+      if (Date.now() - lastHeartbeat > 5000) {
+        console.log(`[VAD] Loop heartbeat (Context: ${this.audioContext?.state}, Listening: ${this.isListening})`);
+        lastHeartbeat = Date.now();
+      }
 
-      // Calculate RMS volume
+      // Use time-domain data for more accurate volume detection
+      this.analyser.getByteTimeDomainData(dataArray);
+
+      // Calculate RMS volume from time-domain samples
       let sum = 0;
       for (let i = 0; i < bufferLength; i++) {
-        sum += dataArray[i] * dataArray[i];
+        // Convert byte (0-255) to normalized amplitude (-1.0 to 1.0)
+        const amplitude = (dataArray[i] - 128) / 128;
+        sum += amplitude * amplitude;
       }
-      const rms = Math.sqrt(sum / bufferLength) / 255;
+      const rms = Math.sqrt(sum / bufferLength);
 
       // Notify volume change
       if (this.onVolumeChange) {
@@ -99,6 +116,7 @@ class AudioService {
           // Start recording
           this.startRecording();
           recordingStart = Date.now();
+          console.log('[VAD] Speech start detected');
           if (this.onSpeechStart) {
             this.onSpeechStart();
           }
@@ -107,20 +125,27 @@ class AudioService {
         // Check for silence timeout
         if (!silenceStart) {
           silenceStart = Date.now();
+          console.log('[VAD] Silence started...');
         } else if (Date.now() - silenceStart > this.silenceTimeout) {
           // Ensure minimum recording time
           if (recordingStart && Date.now() - recordingStart > this.minRecordingTime) {
-            this.stopRecording();
-            if (this.onSpeechEnd) {
-              this.onSpeechEnd();
-            }
+            console.log('[VAD] Speech end detected (after timeout)');
+
+            // Clear markers first to prevent re-triggering while stopping
             silenceStart = null;
             recordingStart = null;
+
+            this.stopRecording().then(() => {
+              if (this.onSpeechEnd) {
+                this.onSpeechEnd();
+              }
+            });
           }
         }
       }
 
-      requestAnimationFrame(checkAudio);
+      // Use setTimeout instead of requestAnimationFrame to avoid background throttling in Electron
+      setTimeout(checkAudio, 40);
     };
 
     checkAudio();
@@ -142,6 +167,15 @@ class AudioService {
       }
     };
 
+    this.mediaRecorder.onerror = (event) => {
+      console.error('[Audio] MediaRecorder error:', event.error);
+      this.isRecording = false;
+    };
+
+    this.mediaRecorder.onstart = () => {
+      console.log('[Audio] MediaRecorder started');
+    };
+
     this.mediaRecorder.onstop = () => {
       const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
       if (this.onAudioData) {
@@ -153,13 +187,27 @@ class AudioService {
   }
 
   stopRecording() {
-    if (!this.isRecording) return null;
+    if (!this.isRecording) return Promise.resolve(null);
 
     this.isRecording = false;
 
-    if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
-      this.mediaRecorder.stop();
-    }
+    return new Promise((resolve) => {
+      if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+        const handleStop = () => {
+          this.mediaRecorder.removeEventListener('stop', handleStop);
+          const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
+          if (this.onAudioData) {
+            this.onAudioData(audioBlob);
+          }
+          resolve(audioBlob);
+        };
+
+        this.mediaRecorder.addEventListener('stop', handleStop);
+        this.mediaRecorder.stop();
+      } else {
+        resolve(null);
+      }
+    });
   }
 
   async recordWithVAD() {
@@ -176,8 +224,14 @@ class AudioService {
         recordedBlob = blob;
       };
 
-      this.onSpeechEnd = () => {
+      this.onSpeechEnd = async () => {
         this.stopListening();
+
+        // Give a tiny bit of time for any pending chunks
+        if (!recordedBlob) {
+          await new Promise(r => setTimeout(r, 100));
+        }
+
         if (recordedBlob) {
           resolve(recordedBlob);
         } else {
@@ -186,10 +240,18 @@ class AudioService {
       };
 
       // Timeout after 30 seconds
-      setTimeout(() => {
+      setTimeout(async () => {
         if (this.isListening) {
-          this.stopListening();
-          reject(new Error('Recording timeout'));
+          console.log('[Audio] Recording timeout reached');
+
+          if (this.isRecording) {
+            console.log('[Audio] Timeout occurred during active recording - forcing stop and processing');
+            await this.stopRecording();
+            // onSpeechEnd will be called by stopRecording().then(...) in monitorVAD
+          } else {
+            this.stopListening();
+            reject(new Error('No speech detected within 30 seconds'));
+          }
         }
       }, 30000);
     });

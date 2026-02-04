@@ -59,6 +59,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Model management (Offline Mode)
   checkModelStatus: (modelType) => ipcRenderer.invoke('check-model-status', modelType),
   downloadModel: (data) => ipcRenderer.invoke('download-model', data),
+  transcribeLocal: (data) => ipcRenderer.invoke('transcribe-local', data),
   onModelDownloadProgress: (callback) => {
     const subscription = (event, data) => callback(data);
     ipcRenderer.on('model-download-progress', subscription);

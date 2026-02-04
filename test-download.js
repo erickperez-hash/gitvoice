@@ -1,4 +1,4 @@
-const axios = require('axios');
+const axios = require('axios').default || require('axios');
 const fs = require('fs');
 
 async function test() {
@@ -12,13 +12,13 @@ async function test() {
       timeout: 10000,
       maxRedirects: 5
     });
-    
+
     console.log('Response status:', response.status);
     console.log('Content-Length:', response.headers['content-length']);
-    
+
     let downloaded = 0;
     const total = parseInt(response.headers['content-length'], 10);
-    
+
     response.data.on('data', (chunk) => {
       downloaded += chunk.length;
       if (total) {
@@ -28,12 +28,12 @@ async function test() {
         process.stdout.write(`\rDownloaded: ${downloaded} bytes`);
       }
     });
-    
+
     response.data.on('end', () => {
       console.log('\nDownload finished successfully');
       process.exit(0);
     });
-    
+
     response.data.on('error', (err) => {
       console.error('\nStream error occurred:', err.message);
       process.exit(1);

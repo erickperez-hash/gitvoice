@@ -6,15 +6,23 @@ class ModelDownloader {
     this.models = {
       stt: {
         name: 'Whisper Tiny (ONNX)',
-        url: 'https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/onnx/encoder_model_quantized.onnx',
-        filename: 'whisper-tiny.onnx',
-        size: '10MB',
+        folder: 'whisper-tiny.en',
+        files: [
+          { name: 'config.json', url: 'https://huggingface.co/Xenova/whisper-tiny.en/resolve/main/config.json' },
+          { name: 'tokenizer.json', url: 'https://huggingface.co/Xenova/whisper-tiny.en/resolve/main/tokenizer.json' },
+          { name: 'tokenizer_config.json', url: 'https://huggingface.co/Xenova/whisper-tiny.en/resolve/main/tokenizer_config.json' },
+          { name: 'preprocessor_config.json', url: 'https://huggingface.co/Xenova/whisper-tiny.en/resolve/main/preprocessor_config.json' },
+          { name: 'generation_config.json', url: 'https://huggingface.co/Xenova/whisper-tiny.en/resolve/main/generation_config.json' },
+          { name: 'onnx/encoder_model_quantized.onnx', url: 'https://huggingface.co/Xenova/whisper-tiny.en/resolve/main/onnx/encoder_model_quantized.onnx' },
+          { name: 'onnx/decoder_model_merged_quantized.onnx', url: 'https://huggingface.co/Xenova/whisper-tiny.en/resolve/main/onnx/decoder_model_merged_quantized.onnx' }
+        ],
+        size: '45MB',
         downloaded: false
       },
       tts: {
         name: 'Kokoro TTS (ONNX)',
-        url: 'https://huggingface.co/onnx-community/Kokoro-82M-ONNX/resolve/main/onnx/model_quantized.onnx',
         filename: 'kokoro.onnx',
+        url: 'https://huggingface.co/onnx-community/Kokoro-82M-ONNX/resolve/main/onnx/model_quantized.onnx',
         size: '92MB',
         downloaded: false
       }
@@ -62,33 +70,45 @@ class ModelDownloader {
       return { success: true, message: 'Model already downloaded' };
     }
 
-    console.log(`Model download requested for ${modelType}: ${model.url}`);
-
     // Set up progress listener
     const cleanup = window.electronAPI.onModelDownloadProgress((data) => {
       if (data.modelType === modelType) {
         if (this.onProgress) {
+          // Progress data is now more complex with multi-file
           this.onProgress(modelType, data.progress, data.downloadedBytes);
         }
       }
     });
 
     try {
-      const result = await window.electronAPI.downloadModel({
-        modelType,
-        url: model.url,
-        filename: model.filename
-      });
-
-      if (result.success) {
-        model.downloaded = true;
-        if (this.onComplete) {
-          this.onComplete(modelType);
+      if (model.files) {
+        // Multi-file download
+        for (let i = 0; i < model.files.length; i++) {
+          const file = model.files[i];
+          const result = await window.electronAPI.downloadModel({
+            modelType,
+            url: file.url,
+            filename: model.folder ? `${model.folder}/${file.name}` : file.name,
+            totalFiles: model.files.length,
+            fileIndex: i
+          });
+          if (!result.success) throw new Error(result.error);
         }
-        return { success: true, message: 'Download complete' };
       } else {
-        throw new Error(result.error);
+        // Single file download
+        const result = await window.electronAPI.downloadModel({
+          modelType,
+          url: model.url,
+          filename: model.filename
+        });
+        if (!result.success) throw new Error(result.error);
       }
+
+      model.downloaded = true;
+      if (this.onComplete) {
+        this.onComplete(modelType);
+      }
+      return { success: true, message: 'Download complete' };
     } catch (error) {
       if (this.onError) {
         this.onError(modelType, error.message);

@@ -121,19 +121,38 @@ class STTService {
   async transcribe(audioBlob) {
     if (this.useLocalModel) {
       try {
-        // Convert blob to array buffer for IPC
+        // Step 1: Decode audio in renderer (much easier than in Node)
         const arrayBuffer = await audioBlob.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+
+        // Step 2: Resample to 16kHz (required by Whisper)
+        const offlineCtx = new OfflineAudioContext(
+          1, // mono
+          Math.ceil(audioBuffer.duration * 16000),
+          16000
+        );
+
+        const source = offlineCtx.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(offlineCtx.destination);
+        source.start();
+
+        const resampledBuffer = await offlineCtx.startRendering();
+        const float32Data = resampledBuffer.getChannelData(0);
 
         const status = await window.electronAPI.checkModelStatus('stt');
         if (!status.downloaded) {
           throw new Error('STT model not found');
         }
 
+        console.log('[STT] Sending resampled audio (16kHz) to main process...');
         const result = await window.electronAPI.transcribeLocal({
-          audioBuffer: buffer,
+          audioData: float32Data,
           modelPath: status.path
         });
+
+        if (this.onEnd) this.onEnd();
 
         if (result.success) {
           return { text: result.text, confidence: result.confidence || 0.9 };
@@ -141,6 +160,7 @@ class STTService {
           throw new Error(result.error);
         }
       } catch (error) {
+        if (this.onEnd) this.onEnd();
         throw new Error(`Local transcription failed: ${error.message}`);
       }
     }

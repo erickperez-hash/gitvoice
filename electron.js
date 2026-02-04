@@ -614,24 +614,36 @@ ipcMain.handle('load-settings', () => {
 const modelsDir = path.join(app.getPath('userData'), 'models');
 
 ipcMain.handle('check-model-status', async (event, modelType) => {
-  const modelConfig = {
-    stt: 'whisper-tiny.onnx',
-    tts: 'kokoro.onnx'
-  };
-
-  const filename = modelConfig[modelType];
-  if (!filename) return { downloaded: false };
-
-  let modelPath = path.join(modelsDir, filename);
-  let downloaded = fs.existsSync(modelPath);
+  let downloaded = false;
+  let modelPath = '';
   let needsUpdate = false;
 
-  // Check for incompatible .bin format if .onnx is missing
-  if (!downloaded && modelType === 'stt') {
-    const binPath = path.join(modelsDir, 'whisper-tiny.bin');
-    if (fs.existsSync(binPath)) {
+  if (modelType === 'stt') {
+    // Check for the core config files in the whisper-tiny.en folder
+    const requiredFiles = [
+      'config.json',
+      'tokenizer.json',
+      'tokenizer_config.json',
+      'preprocessor_config.json',
+      'generation_config.json',
+      'onnx/encoder_model_quantized.onnx',
+      'onnx/decoder_model_merged_quantized.onnx'
+    ];
+
+    downloaded = requiredFiles.every(file =>
+      fs.existsSync(path.join(modelsDir, 'whisper-tiny.en', file))
+    );
+
+    modelPath = path.join(modelsDir, 'whisper-tiny.en', 'config.json');
+
+    // Check if user still has the old single-file model
+    const oldPath = path.join(modelsDir, 'whisper-tiny.onnx');
+    if (fs.existsSync(oldPath)) {
       needsUpdate = true;
     }
+  } else if (modelType === 'tts') {
+    modelPath = path.join(modelsDir, 'kokoro.onnx');
+    downloaded = fs.existsSync(modelPath);
   }
 
   return {
@@ -641,28 +653,29 @@ ipcMain.handle('check-model-status', async (event, modelType) => {
   };
 });
 
-ipcMain.handle('download-model', async (event, { modelType, url, filename }) => {
-  const axios = require('axios');
+ipcMain.handle('download-model', async (event, { modelType, url, filename, totalFiles = 1, fileIndex = 0 }) => {
+  const axios = require('axios').default || require('axios');
   const { pipeline } = require('stream');
   const { promisify } = require('util');
   const streamPipeline = promisify(pipeline);
 
   try {
-    if (!fs.existsSync(modelsDir)) {
-      fs.mkdirSync(modelsDir, { recursive: true });
+    const targetPath = path.join(modelsDir, filename);
+    const targetDir = path.dirname(targetPath);
+
+    if (!fs.existsSync(targetDir)) {
+      fs.mkdirSync(targetDir, { recursive: true });
     }
 
-    const targetPath = path.join(modelsDir, filename);
-    console.log(`Downloading ${modelType} from ${url} to ${targetPath}`);
+    console.log(`[Download] ${modelType} (${fileIndex + 1}/${totalFiles}): ${url} -> ${targetPath}`);
 
     const response = await axios({
       method: 'get',
       url: url,
       responseType: 'stream',
-      timeout: 30000 // 30 second timeout for initial connection
+      timeout: 60000
     });
 
-    // Content-Length might be from a redirect body or missing
     const totalLength = parseInt(response.headers['content-length'], 10);
     let downloadedLength = 0;
 
@@ -671,17 +684,14 @@ ipcMain.handle('download-model', async (event, { modelType, url, filename }) => 
     response.data.on('data', (chunk) => {
       downloadedLength += chunk.length;
       if (totalLength && totalLength > 0) {
-        const progress = Math.round((downloadedLength / totalLength) * 100);
-        // Throttle progress updates to avoid saturating IPC
-        if (downloadedLength % (1024 * 1024) < chunk.length || progress === 100) {
+        // Calculate combined progress if multi-file
+        const fileProgress = (downloadedLength / totalLength) * 100;
+        const overallProgress = Math.round((fileIndex / totalFiles * 100) + (fileProgress / totalFiles));
+
+        if (downloadedLength % (1024 * 1024) < chunk.length || overallProgress === 100) {
           if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('model-download-progress', { modelType, progress });
+            mainWindow.webContents.send('model-download-progress', { modelType, progress: overallProgress });
           }
-        }
-      } else {
-        // If totalLength is unknown, just send raw bytes for UI to show something
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('model-download-progress', { modelType, downloadedBytes: downloadedLength });
         }
       }
     });
@@ -690,44 +700,70 @@ ipcMain.handle('download-model', async (event, { modelType, url, filename }) => 
     return { success: true, path: targetPath };
 
   } catch (error) {
-    console.error(`Download failed for ${modelType}:`, error.message);
-    const targetPath = path.join(modelsDir, filename);
-    if (fs.existsSync(targetPath)) {
-      try { fs.unlinkSync(targetPath); } catch (e) { }
-    }
-
-    let errorMessage = error.message;
-    if (error.code === 'ETIMEDOUT' || error.code === 'ECONNABORTED') {
-      errorMessage = 'Download timed out. Please try again.';
-    } else if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED' || error.message?.toLowerCase().includes('network')) {
-      errorMessage = `Network issue detected (${error.code || 'Connection Error'}). Check your internet or firewall.`;
-    }
-    return { success: false, error: errorMessage };
+    console.error(`[Download] Failed for ${modelType}:`, error.message);
+    return { success: false, error: error.message };
   }
 });
 
-ipcMain.handle('transcribe-local', async (event, { audioBuffer, modelPath }) => {
-  try {
-    console.log(`Local transcription requested with model: ${modelPath}`);
+let transcriptionPipeline = null;
 
-    // Ensure model exists
-    if (!fs.existsSync(modelPath)) {
-      return { success: false, error: 'Model file not found at expected path.' };
+ipcMain.handle('transcribe-local', async (event, { audioData, modelPath }) => {
+  try {
+    console.log(`[Whisper] Local transcription requested (Audio length: ${audioData.length} samples)`);
+
+    // Use dynamic import for transformers.js (ESM)
+    const { pipeline, env } = await import('@xenova/transformers');
+
+    // Configure for STRICT OFFLINE mode
+    env.allowRemoteModels = false;
+    env.localModelPath = modelsDir;
+
+    // Initialize pipeline if not already done
+    if (!transcriptionPipeline) {
+      console.log(`[Whisper] Initializing Whisper Tiny engine from: ${modelsDir}`);
+
+      try {
+        // We look for 'whisper-tiny.en' in the modelsDir
+        transcriptionPipeline = await pipeline('automatic-speech-recognition', 'whisper-tiny.en', {
+          quantized: true,
+        });
+        console.log('[Whisper] Engine ready.');
+      } catch (loadError) {
+        console.error('[Whisper] Initialization failed:', loadError);
+        return {
+          success: false,
+          error: `Offline model files are incomplete or missing. Please re-download models in settings. (Internal: ${loadError.message})`
+        };
+      }
     }
 
-    // Since a full ONNX Whisper implementation is complex and requires multiple files 
-    // (encoder, decoder, tokenizer), we are currently providing a bridge to the intent parser.
-    // In a future update, we will integrate @xenova/transformers for full offline support.
+    // Run transcription with timeout
+    console.log('[Whisper] Inference starting...');
 
-    // For now, to allow testing the offline flow without network errors:
+    const transcriptionPromise = transcriptionPipeline(audioData, {
+      chunk_length_s: 30,
+      stride_length_s: 5,
+      language: 'english',
+      task: 'transcribe',
+    });
+
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Transcription timed out after 30s')), 30000)
+    );
+
+    // Race against timeout
+    const result = await Promise.race([transcriptionPromise, timeoutPromise]);
+
+    console.log(`[Whisper] Transcription complete: "${result.text}"`);
+
     return {
       success: true,
-      text: "simulation: status", // Placeholder for testing the flow
-      confidence: 1.0,
-      isSimulation: true
+      text: result.text.trim(),
+      confidence: 1.0
     };
   } catch (error) {
-    return { success: false, error: error.message };
+    console.error('[Whisper] General error:', error);
+    return { success: false, error: `Local Transcription Error: ${error.message}` };
   }
 });
 

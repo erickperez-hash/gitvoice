@@ -238,8 +238,15 @@
           </div>
           <div class="setting-item">
             <label for="vad-sensitivity">Voice Detection Sensitivity</label>
-            <input type="range" id="vad-sensitivity" min="0.1" max="1" step="0.1" value="0.5">
-            <span id="vad-sensitivity-value">0.5</span>
+            <input type="range" id="vad-sensitivity" min="0.01" max="0.2" step="0.01" value="0.02">
+            <span id="vad-sensitivity-value">0.02</span>
+          </div>
+          <div class="setting-item">
+            <label for="voice-mode">Voice Command Mode</label>
+            <select id="voice-mode">
+              <option value="online">Online (High Accuracy)</option>
+              <option value="offline">Offline (Experimental Simulation)</option>
+            </select>
           </div>
         </div>
 

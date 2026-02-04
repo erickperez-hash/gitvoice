@@ -177,7 +177,7 @@ class Trampoline {
 
   // Validate a token by making a test API call
   async validateToken(service, token) {
-    const axios = require('axios');
+    const axios = require('axios').default || require('axios');
 
     try {
       switch (service) {

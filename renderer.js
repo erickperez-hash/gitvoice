@@ -139,6 +139,54 @@ function bindEvents() {
 
   // Auth type toggle
   elements.authType?.addEventListener('change', handleAuthTypeChange);
+
+  // Settings
+  elements.settingsBtn?.addEventListener('click', openSettings);
+  document.getElementById('close-settings')?.addEventListener('click', closeSettings);
+  document.getElementById('settings-save')?.addEventListener('click', saveSettings);
+
+  // Network awareness for Offline Mode
+  window.addEventListener('online', updateVoiceModeBasedOnNetwork);
+  window.addEventListener('offline', updateVoiceModeBasedOnNetwork);
+}
+
+function updateVoiceModeBasedOnNetwork() {
+  const isOnline = navigator.onLine;
+  const statuses = modelDownloader.getModelStatus();
+  const sttDownloaded = statuses.stt.downloaded;
+
+  if (!isOnline && sttDownloaded) {
+    console.log('[Network] Internet restricted. Switching to Offline Mode.');
+    sttService.setUseLocalModel(true);
+    updateVoiceModeUI('offline', true);
+  } else if (isOnline) {
+    console.log('[Network] Internet available. Preferred Online Mode.');
+    // Keep user's manual preference if it exists, otherwise default to online
+    const saved = localStorage.getItem('gitvoice-settings');
+    const settings = saved ? JSON.parse(saved) : {};
+    const preferredMode = settings.voiceMode || 'online';
+
+    sttService.setUseLocalModel(preferredMode === 'offline');
+    updateVoiceModeUI(preferredMode, false);
+  }
+}
+
+function updateVoiceModeUI(mode, isAuto) {
+  const voiceModeSelect = document.getElementById('voice-mode');
+  if (voiceModeSelect) {
+    voiceModeSelect.value = mode;
+  }
+
+  const sttStatus = document.getElementById('stt-model-status');
+  if (sttStatus) {
+    if (mode === 'offline') {
+      sttStatus.textContent = isAuto ? 'Offline Mode (Automatic)' : 'Offline Mode (Active)';
+      sttStatus.classList.add('downloaded');
+    } else {
+      sttStatus.textContent = navigator.onLine ? 'Online (High Accuracy)' : 'Internet required for Online mode';
+      if (!navigator.onLine) sttStatus.classList.remove('downloaded');
+    }
+  }
 }
 
 async function checkInitialState() {
@@ -340,51 +388,78 @@ async function startVoiceCommand() {
   elements.voiceBtn.innerHTML = '<span class="mic-icon">&#127908;</span> Listening...';
 
   try {
-    // Step 1: Listening
-    progressIndicator.setListening();
-    await narrationService.announceStep('listening');
+    let transcript = '';
 
-    elements.transcript.innerHTML = '<span class="placeholder">Listening...</span>';
+    if (sttService.useLocalModel) {
+      console.log('[Voice] Using Local Model (Offline Mode)');
+      // Step 1: Listening (handled by VAD)
+      progressIndicator.setListening();
+      await narrationService.announceStep('listening');
+      elements.transcript.innerHTML = '<span class="placeholder">Listening...</span>';
 
-    // Start speech recognition
-    const transcript = await new Promise((resolve, reject) => {
-      let finalTranscript = '';
+      console.log('[Voice] Waiting for VAD recording...');
+      const audioBlob = await audioService.recordWithVAD();
+      console.log('[Voice] Audio recording captured, size:', audioBlob.size);
 
-      sttService.onResult = (result) => {
-        elements.transcript.textContent = result.interim || result.final;
-        if (result.isFinal && result.final) {
-          finalTranscript = result.final;
-        }
-      };
+      // Step 2: Understanding (Local Transcription)
+      progressIndicator.setUnderstanding();
+      // Use non-blocking speech so transcription can start immediately
+      narrationService.announceStep('processing', {}, false);
+      elements.transcript.innerHTML = '<span class="placeholder">Transcribing...</span>';
 
-      sttService.onEnd = () => {
-        if (finalTranscript) {
-          resolve(finalTranscript);
-        } else {
-          reject(new Error('No speech detected'));
-        }
-      };
+      console.log('[Voice] Calling local transcription service...');
+      const result = await sttService.transcribe(audioBlob);
+      console.log('[Voice] Transcription result:', result.text);
+      transcript = result.text;
+    } else {
+      console.log('[Voice] Using Web Speech API (Online Mode)');
+      // Step 1: Listening (Web Speech API)
+      progressIndicator.setListening();
+      await narrationService.announceStep('listening');
+      elements.transcript.innerHTML = '<span class="placeholder">Listening...</span>';
 
-      sttService.onError = (error) => {
-        reject(new Error(`Speech recognition error: ${error}`));
-      };
+      // Start speech recognition
+      transcript = await new Promise((resolve, reject) => {
+        let finalTranscript = '';
 
-      sttService.start();
+        sttService.onResult = (result) => {
+          elements.transcript.textContent = result.interim || result.final;
+          if (result.isFinal && result.final) {
+            finalTranscript = result.final;
+          }
+        };
 
-      // Timeout after 15 seconds
-      setTimeout(() => {
-        sttService.stop();
-      }, 15000);
-    });
+        sttService.onEnd = () => {
+          if (finalTranscript) {
+            resolve(finalTranscript);
+          } else {
+            reject(new Error('No speech detected'));
+          }
+        };
 
-    // Step 2: Understanding
+        sttService.onError = (error) => {
+          reject(new Error(`Speech recognition error: ${error}`));
+        };
+
+        sttService.start();
+
+        // Timeout after 15 seconds
+        setTimeout(() => {
+          sttService.stop();
+        }, 15000);
+      });
+    }
+
+    // Step 2: Understanding (Continued for both modes)
     progressIndicator.setUnderstanding();
-    await narrationService.announceStep('transcribed', transcript);
+    // Non-blocking announcement of what was heard
+    narrationService.announceStep('transcribed', transcript, false);
 
     elements.transcript.textContent = transcript;
 
     // Parse intent
-    await narrationService.announceStep('parsing');
+    // Non-blocking announcement of parsing
+    narrationService.announceStep('parsing', {}, false);
     const context = await gitService.getContext();
     const intent = intentService.parse(transcript, context);
 
@@ -418,21 +493,27 @@ async function startVoiceCommand() {
       resetVoiceUI();
     }
 
+    resetVoiceUI();
   } catch (error) {
-    console.error('Voice command error:', error);
+    console.error('[Voice] Command flow failed:', error);
     await narrationService.announceStep('error', error.message);
 
     const isNetworkError = error.message.toLowerCase().includes('network');
+    const isNoAudio = error.message.includes('No audio recorded') || error.message.includes('No speech detected');
 
     showError({
-      title: 'Voice Command Failed',
+      title: 'Voice Command Issue',
       message: error.message,
       explanation: isNetworkError
         ? 'Speech recognition requires an active internet connection to communicate with the browser\'s transcription service.'
-        : 'There was a problem processing your voice command.',
-      solution: isNetworkError
-        ? 'Please check your internet connection, or <strong>download local models in Settings</strong> for offline voice commands.'
-        : 'Please try again, speaking clearly.'
+        : isNoAudio
+          ? 'I didn\'t hear anything. This could be because the microphone sensitivity is too low or your microphone is muted.'
+          : 'There was a technical problem processing your voice command.',
+      solution: isNoAudio
+        ? 'Try moving the <strong>Sensitivity slider</strong> in Settings to the left (closer to 0.01), or check your microphone settings.'
+        : isNetworkError
+          ? 'Please check your internet connection, or <strong>download local models in Settings</strong> for offline voice commands.'
+          : 'Please try again. If this persists, try restarting the application.'
     });
     resetVoiceUI();
   }
@@ -651,15 +732,18 @@ function saveSettings() {
   const verbosity = document.getElementById('verbosity')?.value || 'normal';
   const showTips = document.getElementById('show-tips')?.checked ?? true;
   const autoModal = document.getElementById('auto-modal')?.checked ?? true;
+  const voiceMode = document.getElementById('voice-mode')?.value || 'online';
 
   // Apply settings
   narrationService.setVerbosity(verbosity);
+  sttService.setUseLocalModel(voiceMode === 'offline');
 
   // Save to localStorage
   localStorage.setItem('gitvoice-settings', JSON.stringify({
     verbosity,
     showTips,
     autoModal,
+    voiceMode,
     voiceSpeed: ttsService.rate,
     vadSensitivity: audioService.vadThreshold
   }));
@@ -713,7 +797,18 @@ function loadSettings() {
           verbositySelect.value = settings.verbosity;
         }
       }
+
+      if (settings.voiceMode) {
+        const voiceModeSelect = document.getElementById('voice-mode');
+        if (voiceModeSelect) {
+          voiceModeSelect.value = settings.voiceMode;
+        }
+      }
     }
+
+    // Always check network status on load to ensure correct initial mode
+    updateVoiceModeBasedOnNetwork();
+
   } catch (error) {
     console.warn('Could not load settings:', error);
   }
@@ -1189,11 +1284,10 @@ async function initializeModels() {
         if (downloadSttBtn) downloadSttBtn.disabled = false;
         if (downloadSttBtn) downloadSttBtn.textContent = 'Update Now';
       } else {
-        sttStatus.textContent = statuses.stt.downloaded ? 'Downloaded (Offline Mode Ready)' : 'Web Speech API (Internet Required)';
+        sttStatus.textContent = statuses.stt.downloaded ? 'Downloaded (Offline Mode Available)' : 'Web Speech API (Internet Required)';
         if (statuses.stt.downloaded) {
           sttStatus.classList.add('downloaded');
           sttStatus.classList.remove('warning');
-          sttService.setUseLocalModel(true);
         }
         if (downloadSttBtn) {
           downloadSttBtn.disabled = statuses.stt.downloaded;

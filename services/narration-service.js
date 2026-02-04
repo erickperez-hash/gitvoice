@@ -9,7 +9,7 @@ class NarrationService {
   }
 
   // Announce each step of the process
-  async announceStep(step, context = {}) {
+  async announceStep(step, context = {}, awaitSpeech = true) {
     if (!this.narrationsEnabled) return;
 
     const narrations = {
@@ -58,7 +58,11 @@ class NarrationService {
     }
 
     if (message) {
-      await this.speak(message);
+      if (awaitSpeech) {
+        await this.speak(message);
+      } else {
+        this.speak(message).catch(err => console.warn('Background narration failed:', err));
+      }
     }
   }
 

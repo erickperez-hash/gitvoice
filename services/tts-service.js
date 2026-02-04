@@ -33,15 +33,19 @@ class TTSService {
 
   selectDefaultVoice() {
     const voices = this.synth.getVoices();
+    const isOnline = navigator.onLine;
 
-    // Prefer natural-sounding voices
-    const preferredVoices = [
-      'Samantha', // macOS
-      'Alex', // macOS
-      'Google US English', // Chrome
-      'Microsoft Zira', // Windows
-      'Microsoft David' // Windows
+    // Prefer natural-sounding voices, but avoid cloud voices if offline
+    let preferredVoices = [
+      'Samantha', // macOS (Local)
+      'Alex', // macOS (Local)
+      'Microsoft Zira', // Windows (Local)
+      'Microsoft David', // Windows (Local)
     ];
+
+    if (isOnline) {
+      preferredVoices.unshift('Google US English'); // Chrome Cloud Voice (Best when online)
+    }
 
     for (const preferred of preferredVoices) {
       const voice = voices.find(v =>
@@ -49,6 +53,7 @@ class TTSService {
       );
       if (voice) {
         this.voice = voice;
+        console.log(`[TTS] Selected voice: ${voice.name} (${isOnline ? 'Online' : 'Offline'} mode)`);
         return;
       }
     }
