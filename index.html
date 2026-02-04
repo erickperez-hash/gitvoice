@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'">
+  <title>GitVoice - Learn Git by Voice</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-left">
+        <h1>GitVoice</h1>
+        <span class="subtitle">Learn Git by Voice</span>
+      </div>
+      <div class="header-controls">
+        <button id="practice-mode-toggle" class="btn btn-secondary" title="Practice without executing">
+          <span class="icon">&#127919;</span>
+          Practice Mode
+        </button>
+        <button id="learn-mode-toggle" class="btn btn-secondary">
+          <span class="icon">&#128218;</span>
+          Learning Mode: ON
+        </button>
+        <button id="learn-git-btn" class="btn btn-secondary" title="Learn Git basics">
+          <span class="icon">&#128214;</span>
+          Learn Git
+        </button>
+        <button id="settings-btn" class="btn btn-icon">
+          <span class="icon">&#9881;</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Repository Info -->
+    <section class="repo-section">
+      <div class="repo-info">
+        <div class="repo-row">
+          <input type="text" id="repo-path" placeholder="Select a Git repository..." readonly>
+          <button id="browse-repo" class="btn btn-primary">Browse</button>
+        </div>
+        <div class="repo-row clone-row">
+          <input type="text" id="clone-url" placeholder="Or enter a Git URL to clone (https://github.com/user/repo)...">
+          <button id="clone-repo" class="btn btn-secondary">Clone</button>
+        </div>
+      </div>
+      <div id="repo-status" class="repo-status"></div>
+    </section>
+
+    <!-- Multi-Step Progress Indicator -->
+    <section class="progress-section">
+      <div class="progress-steps">
+        <div class="step" id="step-listening" data-step="1">
+          <div class="step-number">1</div>
+          <div class="step-label">Listening</div>
+          <div class="step-icon">&#127908;</div>
+        </div>
+        <div class="step-connector"></div>
+        <div class="step" id="step-understanding" data-step="2">
+          <div class="step-number">2</div>
+          <div class="step-label">Understanding</div>
+          <div class="step-icon">&#129504;</div>
+        </div>
+        <div class="step-connector"></div>
+        <div class="step" id="step-cloning" data-step="clone" style="display: none;">
+          <div class="step-number">C</div>
+          <div class="step-label">Cloning</div>
+          <div class="step-icon">&#128229;</div>
+        </div>
+        <div id="cloning-connector" class="step-connector" style="display: none;"></div>
+        <div class="step" id="step-executing" data-step="3">
+          <div class="step-number">3</div>
+          <div class="step-label">Executing</div>
+          <div class="step-icon">&#9889;</div>
+        </div>
+        <div class="step-connector"></div>
+        <div class="step" id="step-complete" data-step="4">
+          <div class="step-number">4</div>
+          <div class="step-label">Complete</div>
+          <div class="step-icon">&#10004;</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Voice Feedback Display -->
+    <section class="voice-feedback" id="voice-feedback">
+      <span class="speaker-icon">&#128266;</span>
+      <div id="voice-text">Press Cmd+Shift+V to start voice command</div>
+    </section>
+
+    <!-- Transcript Display -->
+    <section class="transcript-panel">
+      <h3>What I Heard:</h3>
+      <div id="transcript" class="transcript-content">
+        <span class="placeholder">Your voice command will appear here...</span>
+      </div>
+    </section>
+
+    <!-- Command Preview -->
+    <section class="command-preview" id="command-preview" style="display: none;">
+      <h3>Detected Command:</h3>
+      <div class="preview-content">
+        <span class="action-badge" id="preview-action"></span>
+        <code id="preview-command"></code>
+      </div>
+    </section>
+
+    <!-- Git Status Display -->
+    <section class="status-panel">
+      <h3>Repository Status</h3>
+      <div id="git-status" class="status-content">
+        <span class="placeholder">Select a repository to see its status</span>
+      </div>
+    </section>
+
+    <!-- Action Buttons -->
+    <section class="action-buttons">
+      <button id="voice-btn" class="btn btn-voice" disabled>
+        <span class="mic-icon">&#127908;</span>
+        Start Voice Command
+      </button>
+      <button id="execute-btn" class="btn btn-primary" disabled>Execute Command</button>
+      <button id="cancel-btn" class="btn btn-secondary" disabled>Cancel</button>
+      <button id="explain-btn" class="btn btn-secondary" disabled>Explain This Command</button>
+    </section>
+
+    <!-- Hotkey Hint -->
+    <!-- Hotkey Hint -->
+    <div class="hotkey-hint">
+      Press <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd> to activate voice command
+    </div>
+
+    <!-- Status Bar -->
+    <div class="app-status-bar">
+      <div class="status-item" id="mic-status">
+        <span class="status-icon">&#127908;</span>
+        <span class="status-text">Microphone: Checking...</span>
+      </div>
+      <div class="status-item" id="network-status">
+        <span class="status-icon">&#127760;</span>
+        <span class="status-text">Network: Checking...</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Command Learning Modal -->
+  <div id="command-modal" class="modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2><span class="modal-icon">&#127891;</span> Learning: Git Command Execution</h2>
+        <button class="close-modal" id="close-modal">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- What GitVoice is doing -->
+        <div class="action-description">
+          <h3>What I'm Doing:</h3>
+          <p id="action-description">Preparing to execute Git command...</p>
+        </div>
+
+        <!-- The actual CLI command -->
+        <div class="cli-command">
+          <h3>The Command:</h3>
+          <div class="terminal-window">
+            <div class="terminal-header">
+              <span class="terminal-dot red"></span>
+              <span class="terminal-dot yellow"></span>
+              <span class="terminal-dot green"></span>
+              <span class="terminal-title">Terminal</span>
+            </div>
+            <div class="terminal-body">
+              <pre id="cli-command-text">$ <span id="command"></span></pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- Command explanation -->
+        <div class="command-breakdown">
+          <h3>Command Breakdown:</h3>
+          <div id="command-parts"></div>
+        </div>
+
+        <!-- Live output -->
+        <div class="command-output">
+          <h3>Output:</h3>
+          <div class="terminal-window">
+            <div class="terminal-body output-body">
+              <pre id="command-output"></pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- Learning tips -->
+        <div class="learning-tip">
+          <h3><span class="tip-icon">&#128161;</span> Tip:</h3>
+          <p id="learning-tip">Loading tip...</p>
+        </div>
+
+        <!-- Try it yourself -->
+        <div class="try-yourself">
+          <h3>Try it yourself:</h3>
+          <p>Copy this command and run it in your terminal:</p>
+          <button id="copy-command" class="btn btn-copy">
+            <span class="copy-icon">&#128203;</span> Copy Command
+          </button>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button id="learn-more" class="btn btn-secondary">Learn More About This</button>
+        <button id="modal-close" class="btn btn-primary">Got It!</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div id="settings-modal" class="modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-content settings-content">
+      <div class="modal-header">
+        <h2><span class="modal-icon">&#9881;</span> Settings</h2>
+        <button class="close-modal" id="close-settings">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="settings-group">
+          <h3>Voice Settings</h3>
+          <div class="setting-item">
+            <label for="voice-speed">Voice Speed</label>
+            <input type="range" id="voice-speed" min="0.5" max="2" step="0.1" value="1">
+            <span id="voice-speed-value">1.0x</span>
+          </div>
+          <div class="setting-item">
+            <label for="vad-sensitivity">Voice Detection Sensitivity</label>
+            <input type="range" id="vad-sensitivity" min="0.1" max="1" step="0.1" value="0.5">
+            <span id="vad-sensitivity-value">0.5</span>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <h3>Learning Mode</h3>
+          <div class="setting-item">
+            <label for="verbosity">Narration Verbosity</label>
+            <select id="verbosity">
+              <option value="minimal">Minimal</option>
+              <option value="normal" selected>Normal</option>
+              <option value="detailed">Detailed</option>
+            </select>
+          </div>
+          <div class="setting-item checkbox-item">
+            <input type="checkbox" id="show-tips" checked>
+            <label for="show-tips">Show learning tips</label>
+          </div>
+          <div class="setting-item checkbox-item">
+            <input type="checkbox" id="auto-modal" checked>
+            <label for="auto-modal">Auto-show command modal</label>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <h3>Microphone</h3>
+          <div class="setting-item">
+            <label for="microphone-select">Input Device</label>
+            <select id="microphone-select">
+              <option value="">Default Microphone</option>
+            </select>
+            <button id="test-mic" class="btn btn-secondary btn-small">Test</button>
+          </div>
+          <div class="setting-item">
+            <label>Microphone Level</label>
+            <div class="mic-level-container">
+              <div id="mic-level" class="mic-level"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <h3>Keyboard Shortcut</h3>
+          <div class="setting-item">
+            <label for="hotkey-input">Voice Activation Hotkey</label>
+            <input type="text" id="hotkey-input" class="hotkey-input" readonly placeholder="Click to set hotkey">
+            <button id="reset-hotkey" class="btn btn-secondary btn-small">Reset</button>
+          </div>
+          <div class="setting-hint">Current: <span id="current-hotkey">Cmd+Shift+V</span></div>
+        </div>
+
+        <div class="settings-group">
+          <h3>Git Credentials</h3>
+          <div class="setting-item">
+            <label for="git-service">Service</label>
+            <select id="git-service">
+              <option value="github">GitHub</option>
+              <option value="gitlab">GitLab</option>
+              <option value="bitbucket">Bitbucket</option>
+            </select>
+          </div>
+          <div class="setting-item">
+            <label for="auth-type">Authentication Type</label>
+            <select id="auth-type">
+              <option value="token">Personal Access Token</option>
+              <option value="password">Username & Password</option>
+            </select>
+          </div>
+
+          <div id="token-auth-fields">
+            <div class="setting-item">
+              <label for="git-token">Access Token</label>
+              <input type="password" id="git-token" placeholder="Enter your token">
+            </div>
+          </div>
+
+          <div id="password-auth-fields" style="display: none;">
+            <div class="setting-item">
+              <label for="git-username">Username</label>
+              <input type="text" id="git-username" placeholder="GitHub username">
+            </div>
+            <div class="setting-item">
+              <label for="git-password">Password / App Password</label>
+              <input type="password" id="git-password" placeholder="Your password">
+            </div>
+          </div>
+
+          <div class="setting-item">
+            <button id="save-token" class="btn btn-secondary">Save Credentials</button>
+            <button id="test-token" class="btn btn-secondary">Test Connection</button>
+          </div>
+          <div id="credential-status" class="credential-status"></div>
+          <div class="setting-hint">
+            <a href="#" id="token-help-link">Need help with authentication?</a>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <h3>Git User</h3>
+          <div class="setting-item">
+            <label for="git-name">Name</label>
+            <input type="text" id="git-name" placeholder="Your Name">
+          </div>
+          <div class="setting-item">
+            <label for="git-email">Email</label>
+            <input type="email" id="git-email" placeholder="your.email@example.com">
+          </div>
+          <div class="setting-item">
+            <button id="save-git-user" class="btn btn-secondary">Save Git User</button>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <h3>SSH Keys</h3>
+          <div id="ssh-keys-list" class="ssh-keys-list">
+            <p class="placeholder">Checking for SSH keys...</p>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <h3>Models & Offline Mode</h3>
+          <div class="setting-item">
+            <div class="model-info">
+              <label>Speech-to-Text (Whisper Tiny)</label>
+              <div class="model-status" id="stt-model-status">Checking...</div>
+            </div>
+            <button id="download-stt" class="btn btn-secondary btn-small">Download</button>
+          </div>
+          <div id="stt-progress-container" class="model-download-progress" style="display: none;">
+            <div class="progress-bar-container">
+              <div id="stt-progress-bar" class="progress-bar-fill"></div>
+            </div>
+            <div class="download-status-text">
+              <span id="stt-download-text">Downloading Whisper...</span>
+              <span id="stt-percentage">0%</span>
+            </div>
+          </div>
+
+          <div class="setting-item">
+            <div class="model-info">
+              <label>Text-to-Speech (Kokoro)</label>
+              <div class="model-status" id="tts-model-status">Checking...</div>
+            </div>
+            <button id="download-tts" class="btn btn-secondary btn-small">Download</button>
+          </div>
+          <div id="tts-progress-container" class="model-download-progress" style="display: none;">
+            <div class="progress-bar-container">
+              <div id="tts-progress-bar" class="progress-bar-fill"></div>
+            </div>
+            <div class="download-status-text">
+              <span id="tts-download-text">Downloading Kokoro...</span>
+              <span id="tts-percentage">0%</span>
+            </div>
+          </div>
+          <div class="setting-hint">Download models to enable 100% offline voice commands.</div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button id="settings-save" class="btn btn-primary">Save Settings</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Error Modal -->
+  <div id="error-modal" class="modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-content error-content">
+      <div class="modal-header error-header">
+        <h2><span class="modal-icon">&#9888;</span> <span id="error-title">Error</span></h2>
+        <button class="close-modal" id="close-error">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="error-message">
+          <p id="error-description"></p>
+        </div>
+        <div class="error-explanation">
+          <h3>What This Means:</h3>
+          <p id="error-explanation"></p>
+        </div>
+        <div class="error-solution">
+          <h3>How to Fix:</h3>
+          <p id="error-solution"></p>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button id="error-close" class="btn btn-primary">Got It</button>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <script src="utils/model-downloader.js"></script>
+  <script src="components/command-modal.js"></script>
+  <script src="components/progress-indicator.js"></script>
+  <script src="components/learning-overlay.js"></script>
+  <script src="utils/command-explainer.js"></script>
+  <script src="services/narration-service.js"></script>
+  <script src="services/git-service.js"></script>
+  <script src="services/audio-service.js"></script>
+  <script src="services/stt-service.js"></script>
+  <script src="services/tts-service.js"></script>
+  <script src="services/intent-service.js"></script>
+  <script src="services/practice-mode.js"></script>
+  <script src="renderer.js"></script>
+</body>
+
+</html>
