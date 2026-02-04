@@ -1131,14 +1131,21 @@ async function initializeModels() {
   downloadTtsBtn?.addEventListener('click', () => startModelDownload('tts'));
 
   // Set up progress callbacks for modelDownloader
-  modelDownloader.onProgress = (modelType, progress) => {
+  modelDownloader.onProgress = (modelType, progress, downloadedBytes) => {
     const container = document.getElementById(`${modelType}-progress-container`);
     const progressBar = document.getElementById(`${modelType}-progress-bar`);
     const percentage = document.getElementById(`${modelType}-percentage`);
 
     if (container) container.style.display = 'block';
-    if (progressBar) progressBar.style.width = `${progress}%`;
-    if (percentage) percentage.textContent = `${progress}%`;
+
+    if (progress !== undefined && !isNaN(progress)) {
+      if (progressBar) progressBar.style.width = `${progress}%`;
+      if (percentage) percentage.textContent = `${progress}%`;
+    } else if (downloadedBytes !== undefined) {
+      if (progressBar) progressBar.style.width = '100%'; // Indeterminate style
+      if (progressBar) progressBar.classList.add('indeterminate');
+      if (percentage) percentage.textContent = modelDownloader.formatBytes(downloadedBytes);
+    }
   };
 
   modelDownloader.onComplete = (modelType) => {

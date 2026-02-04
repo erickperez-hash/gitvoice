@@ -642,44 +642,65 @@ ipcMain.handle('check-model-status', async (event, modelType) => {
 });
 
 ipcMain.handle('download-model', async (event, { modelType, url, filename }) => {
+  const axios = require('axios');
+  const { pipeline } = require('stream');
+  const { promisify } = require('util');
+  const streamPipeline = promisify(pipeline);
+
   try {
     if (!fs.existsSync(modelsDir)) {
       fs.mkdirSync(modelsDir, { recursive: true });
     }
 
     const targetPath = path.join(modelsDir, filename);
-    const axios = require('axios');
+    console.log(`Downloading ${modelType} from ${url} to ${targetPath}`);
 
-    // Check if platform supports downloading
     const response = await axios({
       method: 'get',
       url: url,
-      responseType: 'stream'
+      responseType: 'stream',
+      timeout: 30000 // 30 second timeout for initial connection
     });
 
-    const totalLength = response.headers['content-length'];
+    // Content-Length might be from a redirect body or missing
+    const totalLength = parseInt(response.headers['content-length'], 10);
     let downloadedLength = 0;
 
     const writer = fs.createWriteStream(targetPath);
-    response.data.pipe(writer);
 
-    return new Promise((resolve, reject) => {
-      response.data.on('data', (chunk) => {
-        downloadedLength += chunk.length;
+    response.data.on('data', (chunk) => {
+      downloadedLength += chunk.length;
+      if (totalLength && totalLength > 0) {
         const progress = Math.round((downloadedLength / totalLength) * 100);
-        mainWindow.webContents.send('model-download-progress', { modelType, progress });
-      });
-
-      writer.on('finish', () => resolve({ success: true, path: targetPath }));
-      writer.on('error', (err) => {
-        fs.unlinkSync(targetPath);
-        reject(err);
-      });
+        // Throttle progress updates to avoid saturating IPC
+        if (downloadedLength % (1024 * 1024) < chunk.length || progress === 100) {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('model-download-progress', { modelType, progress });
+          }
+        }
+      } else {
+        // If totalLength is unknown, just send raw bytes for UI to show something
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('model-download-progress', { modelType, downloadedBytes: downloadedLength });
+        }
+      }
     });
+
+    await streamPipeline(response.data, writer);
+    return { success: true, path: targetPath };
+
   } catch (error) {
+    console.error(`Download failed for ${modelType}:`, error.message);
+    const targetPath = path.join(modelsDir, filename);
+    if (fs.existsSync(targetPath)) {
+      try { fs.unlinkSync(targetPath); } catch (e) { }
+    }
+
     let errorMessage = error.message;
-    if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED' || error.message?.toLowerCase().includes('network')) {
-      errorMessage = `Network connectivity issue detected (${error.code || 'Network Error'}). Please check your internet connection or firewall settings. The application needs access to huggingface.co to download AI models.`;
+    if (error.code === 'ETIMEDOUT' || error.code === 'ECONNABORTED') {
+      errorMessage = 'Download timed out. Please try again.';
+    } else if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED' || error.message?.toLowerCase().includes('network')) {
+      errorMessage = `Network issue detected (${error.code || 'Connection Error'}). Check your internet or firewall.`;
     }
     return { success: false, error: errorMessage };
   }

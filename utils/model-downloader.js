@@ -68,7 +68,7 @@ class ModelDownloader {
     const cleanup = window.electronAPI.onModelDownloadProgress((data) => {
       if (data.modelType === modelType) {
         if (this.onProgress) {
-          this.onProgress(modelType, data.progress);
+          this.onProgress(modelType, data.progress, data.downloadedBytes);
         }
       }
     });
