@@ -14,6 +14,7 @@ class IntentService {
           /what(?:'s|\s*is)\s*(?:the\s*)?status/i,
           /check\s*(?:the\s*)?status/i,
           /git\s*status/i,
+          /get\s*status/i,
           /what(?:'s|\s*has)?\s*changed/i,
           /show\s*changes/i
         ],

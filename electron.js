@@ -128,29 +128,88 @@ ipcMain.handle('git-status', async () => {
   }
 
   try {
-    const result = await GitProcess.exec(['status', '--short', '--branch'], currentRepoPath);
+    console.log('[Electron] executing git-status...');
 
-    // Parse status output
-    const lines = result.stdout.split('\n').filter(l => l.trim());
-    const branchLine = lines[0] || '';
-    const branch = branchLine.replace('## ', '').split('...')[0];
+    // Create a timeout promise (reduced to 3s for responsiveness)
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('git status timed out')), 3000)
+    );
 
-    const modified = lines.filter(l => l.startsWith(' M') || l.startsWith('M ')).length;
-    const staged = lines.filter(l => l.startsWith('A ') || l.startsWith('M ') || l.startsWith('D ')).length;
-    const untracked = lines.filter(l => l.startsWith('??')).length;
+    // Execute git status
+    const gitPromise = GitProcess.exec(['status', '--short', '--branch'], currentRepoPath);
 
-    return {
-      success: result.exitCode === 0,
-      output: result.stdout,
-      data: {
-        branch,
-        modified,
-        staged,
-        untracked,
-        clean: lines.length <= 1
-      }
-    };
+    // Race them
+    const result = await Promise.race([gitPromise, timeoutPromise]);
+    console.log('[Electron] git-status complete. Exit code:', result.exitCode);
+
+    if (result.exitCode === 0) {
+      // Parse output
+      const output = result.stdout;
+      // ... same parsing logic as before ...
+      // But actually, we just return the raw output and the renderer parses it?
+      // Wait, the previous code parsed it here?
+      // Let's look at the original code. It was handling logic here.
+
+      const lines = output.split('\n');
+      const branchLine = lines.find(l => l.startsWith('##'));
+      const branch = branchLine ? branchLine.substring(3).split('...')[0] : 'HEAD';
+
+      // Count states
+      let modified = 0, staged = 0, untracked = 0;
+      lines.forEach(line => {
+        if (line.startsWith('##')) return;
+        const status = line.substring(0, 2);
+        if (status.includes('M')) modified++;
+        if (status.includes('A')) staged++;
+        if (status.includes('??')) untracked++;
+      });
+
+      return {
+        success: true,
+        data: {
+          branch,
+          modified,
+          staged,
+          untracked,
+          clean: lines.length <= 1
+        }
+      };
+    } else {
+      console.error('[Electron] git-status failed:', result.stderr);
+      return { success: false, error: result.stderr };
+    }
   } catch (error) {
+    console.error('[Electron] git-status error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Fast branch check (fallback)
+ipcMain.handle('git-current-branch', async (event) => {
+  if (!currentRepoPath) return { success: false, error: 'No repository selected' };
+  try {
+    console.log('[Electron] executing fallback git-current-branch...');
+
+    // Timeout for fallback too (1s)
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('git branch check timed out')), 1000)
+    );
+
+    const execPromise = GitProcess.exec(['symbolic-ref', '--short', 'HEAD'], currentRepoPath);
+
+    const result = await Promise.race([execPromise, timeoutPromise]);
+
+    if (result.exitCode === 0) {
+      const branch = result.stdout.trim();
+      console.log('[Electron] Fallback branch detected:', branch);
+      return { success: true, branch };
+    } else {
+      // Try getting hash if detached head
+      const hash = await GitProcess.exec(['rev-parse', '--short', 'HEAD'], currentRepoPath);
+      return { success: hash.exitCode === 0, branch: hash.stdout.trim() };
+    }
+  } catch (error) {
+    console.error('[Electron] git-current-branch error:', error);
     return { success: false, error: error.message };
   }
 });
@@ -718,6 +777,14 @@ ipcMain.handle('transcribe-local', async (event, { audioData, modelPath }) => {
     env.allowRemoteModels = false;
     env.localModelPath = modelsDir;
 
+    // Verify audio data
+    let maxAmp = 0;
+    for (let i = 0; i < audioData.length; i += 100) { // Check every 100th sample for speed
+      const val = Math.abs(audioData[i]);
+      if (val > maxAmp) maxAmp = val;
+    }
+    console.log(`[Whisper] Received Audio: Max Amp=${maxAmp.toFixed(4)}, Length=${audioData.length}`);
+
     // Initialize pipeline if not already done
     if (!transcriptionPipeline) {
       console.log(`[Whisper] Initializing Whisper Tiny engine from: ${modelsDir}`);
@@ -740,12 +807,11 @@ ipcMain.handle('transcribe-local', async (event, { audioData, modelPath }) => {
     // Run transcription with timeout
     console.log('[Whisper] Inference starting...');
 
-    const transcriptionPromise = transcriptionPipeline(audioData, {
-      chunk_length_s: 30,
-      stride_length_s: 5,
-      language: 'english',
-      task: 'transcribe',
-    });
+    // Ensure data is Float32Array for transformers.js
+    const inputTensor = new Float32Array(audioData);
+
+    // Run transcription with minimal options (defaults are best for .en models)
+    const transcriptionPromise = transcriptionPipeline(inputTensor);
 
     const timeoutPromise = new Promise((_, reject) =>
       setTimeout(() => reject(new Error('Transcription timed out after 30s')), 30000)
@@ -758,7 +824,7 @@ ipcMain.handle('transcribe-local', async (event, { audioData, modelPath }) => {
 
     return {
       success: true,
-      text: result.text.trim(),
+      text: result.text ? result.text.trim() : '',
       confidence: 1.0
     };
   } catch (error) {

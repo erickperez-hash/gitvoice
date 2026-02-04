@@ -458,10 +458,16 @@ async function startVoiceCommand() {
     elements.transcript.textContent = transcript;
 
     // Parse intent
+    // Parse intent
     // Non-blocking announcement of parsing
     narrationService.announceStep('parsing', {}, false);
+
+    console.log('[Voice] Getting Git context...');
     const context = await gitService.getContext();
+    console.log('[Voice] Context retreived, parsing intent...');
+
     const intent = intentService.parse(transcript, context);
+    console.log('[Voice] Intent parsed:', intent);
 
     if (intent.action === 'unknown') {
       await narrationService.speak(`I didn't understand that. ${intentService.getHelpText().split('\n')[0]}`);

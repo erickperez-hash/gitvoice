@@ -260,15 +260,39 @@ class GitService {
 
   // Get context for LLM intent parsing
   async getContext() {
-    const status = await this.getStatus();
+    let statusSource = { success: false, data: {} };
+
+    try {
+      statusSource = await this.getStatus();
+    } catch (e) {
+      console.warn('[Git] getStatus failed:', e);
+    }
+
+    let branch = statusSource.data?.branch;
+
+    // Fallback: If status failed or didn't return a branch, try fast check
+    if (!branch) {
+      try {
+        const result = await window.electronAPI.gitCurrentBranch();
+        if (result.success) {
+          branch = result.branch;
+          console.log('[Git] Recovered branch name via fallback:', branch);
+        }
+      } catch (e) {
+        console.warn('[Git] Fallback branch check failed:', e);
+      }
+    }
+
+    // Default to HEAD if absolutely nothing works (safer than 'main')
+    branch = branch || 'HEAD';
 
     return {
-      hasRepository: status.success,
-      branch: status.data?.branch,
-      modified: status.data?.modified || 0,
-      staged: status.data?.staged || 0,
-      untracked: status.data?.untracked || 0,
-      isClean: status.data?.clean || false
+      hasRepository: statusSource.success || (branch !== 'HEAD'),
+      branch: branch,
+      modified: statusSource.data?.modified || 0,
+      staged: statusSource.data?.staged || 0,
+      untracked: statusSource.data?.untracked || 0,
+      isClean: statusSource.data?.clean || false
     };
   }
 }

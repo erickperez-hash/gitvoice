@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   gitPush: (options) => ipcRenderer.invoke('git-push', options),
   gitPull: (options) => ipcRenderer.invoke('git-pull', options),
   gitLog: (limit) => ipcRenderer.invoke('git-log', limit),
+  gitCurrentBranch: () => ipcRenderer.invoke('git-current-branch'),
   gitBranch: (options) => ipcRenderer.invoke('git-branch', options),
   gitCheckout: (branch) => ipcRenderer.invoke('git-checkout', branch),
   gitClone: (options) => ipcRenderer.invoke('git-clone', options),
