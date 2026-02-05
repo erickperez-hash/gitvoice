@@ -3,6 +3,7 @@
 class GitService {
   constructor() {
     this.explainer = new CommandExplainer();
+    this.hasExecutedCommand = false;
   }
 
   // Each operation returns both result and educational context
@@ -22,9 +23,20 @@ class GitService {
       const result = await window.electronAPI.gitExecute(command, args);
       const duration = Date.now() - startTime;
 
+      if (result.success) {
+        this.hasExecutedCommand = true;
+      }
+
+      let output = result.output || result.error;
+
+      // Add helpful tip for authentication errors
+      if (!result.success && output && (output.includes('403') || output.toLowerCase().includes('permission denied'))) {
+        output += '\n\n[Auth Tip] This looks like a permission issue. Please verify your GitHub Credentials in the Settings panel.';
+      }
+
       return {
         success: result.success,
-        output: result.output || result.error,
+        output: output,
         command: command,
         context: context,
         duration: duration,
@@ -62,6 +74,9 @@ class GitService {
 
     try {
       const result = await window.electronAPI.gitAdd(files);
+      if (result.success) {
+        this.hasExecutedCommand = true;
+      }
       return {
         ...result,
         context: this.explainer.explainCommand(command),
@@ -78,6 +93,9 @@ class GitService {
 
     try {
       const result = await window.electronAPI.gitCommit(message);
+      if (result.success) {
+        this.hasExecutedCommand = true;
+      }
       return {
         ...result,
         context: this.explainer.explainCommand(command),
@@ -91,6 +109,9 @@ class GitService {
   async push(remote = 'origin', branch = null) {
     try {
       const result = await window.electronAPI.gitPush({ remote, branch });
+      if (result.success) {
+        this.hasExecutedCommand = true;
+      }
       const actualBranch = result.data?.branch || branch || 'current branch';
       const command = `git push ${remote} ${actualBranch}`;
 
@@ -107,6 +128,9 @@ class GitService {
   async pull(remote = 'origin', branch = null) {
     try {
       const result = await window.electronAPI.gitPull({ remote, branch });
+      if (result.success) {
+        this.hasExecutedCommand = true;
+      }
       const actualBranch = result.data?.branch || branch || 'current branch';
       const command = `git pull ${remote} ${actualBranch}`;
 
@@ -126,6 +150,9 @@ class GitService {
 
     try {
       const result = await window.electronAPI.gitBranch({ name });
+      if (result.success) {
+        this.hasExecutedCommand = true;
+      }
       return {
         ...result,
         context: this.explainer.explainCommand(command),
@@ -142,6 +169,9 @@ class GitService {
 
     try {
       const result = await window.electronAPI.gitCheckout(branch);
+      if (result.success) {
+        this.hasExecutedCommand = true;
+      }
       return {
         ...result,
         context: this.explainer.explainCommand(command),
@@ -158,6 +188,9 @@ class GitService {
 
     try {
       const result = await window.electronAPI.gitClone({ url, targetPath });
+      if (result.success) {
+        this.hasExecutedCommand = true;
+      }
       return {
         ...result,
         context: this.explainer.explainCommand(command),
@@ -174,6 +207,9 @@ class GitService {
 
     try {
       const result = await window.electronAPI.gitMerge(branch);
+      if (result.success) {
+        this.hasExecutedCommand = true;
+      }
       return {
         ...result,
         context: this.explainer.explainCommand(command),
@@ -190,6 +226,9 @@ class GitService {
 
     try {
       const result = await window.electronAPI.gitStash({ action, name });
+      if (result.success) {
+        this.hasExecutedCommand = true;
+      }
       return {
         ...result,
         context: this.explainer.explainCommand(command),
@@ -260,9 +299,9 @@ class GitService {
 
   // Get context for LLM intent parsing
   async getContext() {
-    // Run fast branch check and full status in parallel
+    // Run fast branch check and only full status if we've run a command
     const branchPromise = window.electronAPI.gitCurrentBranch();
-    const statusPromise = this.getStatus();
+    const statusPromise = this.hasExecutedCommand ? this.getStatus() : Promise.resolve({ success: false, error: 'Initial status deferred' });
 
     // We want to be as fast as possible for the UI "Converting..." step
     // So we race them, but we prioritize the lightweight branch check
@@ -282,7 +321,7 @@ class GitService {
       hasContext = true;
     }
 
-    // 2. Try to get full stats if available (might have timed out)
+    // 2. Try to get full stats if available (might have timed out or deferred)
     if (statusResult.status === 'fulfilled' && statusResult.value.success) {
       const s = statusResult.value.data;
       if (!hasContext) branch = s.branch; // Setup branch if fast check failed
@@ -293,7 +332,7 @@ class GitService {
         clean: s.clean
       };
       hasContext = true;
-    } else if (statusResult.status === 'fulfilled') {
+    } else if (statusResult.status === 'fulfilled' && statusResult.value.error !== 'Initial status deferred') {
       // It finished but failed (non-zero exit) or timed out
       console.warn('[Git] Status check failed:', statusResult.value.error);
     }

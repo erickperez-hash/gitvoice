@@ -33,12 +33,13 @@ class Trampoline {
         const hasEncryption = safeStorage && safeStorage.isEncryptionAvailable();
 
         for (const service in saved) {
-          if (saved[service].token && hasEncryption) {
+          if (saved[service] && saved[service].token && hasEncryption) {
             try {
               const buffer = Buffer.from(saved[service].token, 'base64');
               saved[service].token = safeStorage.decryptString(buffer);
             } catch (e) {
-              console.warn(`Failed to decrypt token for ${service}, it might be plaintext or from another machine`);
+              console.warn(`Failed to decrypt token for ${service}, it might be plaintext or from another machine. Clearing token.`);
+              saved[service].token = null;
             }
           }
         }
@@ -178,6 +179,18 @@ class Trampoline {
     }
   }
 
+  // Cleanup temporary askpass scripts
+  cleanupAskPassScript() {
+    const os = require('os');
+    const scriptPath = path.join(os.tmpdir(), 'gitvoice-askpass');
+    try {
+      if (fs.existsSync(scriptPath)) fs.unlinkSync(scriptPath);
+      if (fs.existsSync(scriptPath + '.bat')) fs.unlinkSync(scriptPath + '.bat');
+    } catch (e) {
+      // Ignore cleanup errors
+    }
+  }
+
   // Modify URL to include credentials (for HTTPS)
   getAuthenticatedUrl(url) {
     if (!url || url.startsWith('git@')) {
@@ -257,7 +270,8 @@ class Trampoline {
 
   // Validate username/password by testing with a simple Git command
   async validateUsernamePassword(service, username, password) {
-    const GitProcess = require('dugite');
+    const dugite = require('dugite');
+    const GitProcess = dugite.GitProcess || dugite;
     const os = require('os');
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'git-auth-test-'));
 
@@ -311,7 +325,8 @@ class Trampoline {
 
   // Configure Git globally with user info
   async configureGitUser(name, email) {
-    const GitProcess = require('dugite');
+    const dugite = require('dugite');
+    const GitProcess = dugite.GitProcess || dugite;
 
     try {
       await GitProcess.exec(['config', '--global', 'user.name', name], process.cwd());
@@ -324,7 +339,8 @@ class Trampoline {
 
   // Get current Git user config
   async getGitUser() {
-    const GitProcess = require('dugite');
+    const dugite = require('dugite');
+    const GitProcess = dugite.GitProcess || dugite;
 
     try {
       const nameResult = await GitProcess.exec(['config', '--global', 'user.name'], process.cwd());
@@ -378,7 +394,8 @@ class Trampoline {
 
   // Test Git connection to remote
   async testConnection(remoteUrl) {
-    const GitProcess = require('dugite');
+    const dugite = require('dugite');
+    const GitProcess = dugite.GitProcess || dugite;
 
     try {
       const env = this.getGitEnv(remoteUrl);

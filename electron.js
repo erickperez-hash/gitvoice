@@ -1,7 +1,8 @@
 const { app, BrowserWindow, ipcMain, dialog, globalShortcut, shell, systemPreferences, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const GitProcess = require('dugite');
+const dugite = require('dugite');
+const GitProcess = dugite.GitProcess || dugite;
 
 let mainWindow;
 let currentRepoPath = null;
@@ -84,6 +85,19 @@ ipcMain.handle('browse-repository', async () => {
   return { success: false, error: 'No directory selected' };
 });
 
+// Show save dialog for selecting clone destination
+ipcMain.handle('show-save-dialog', async (event, options) => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    ...options,
+    properties: ['openDirectory', 'createDirectory']
+  });
+
+  if (!result.canceled && result.filePaths.length > 0) {
+    return result.filePaths[0];
+  }
+  return null;
+});
+
 // Execute Git command
 ipcMain.handle('git-execute', async (event, { command, args }) => {
   if (!currentRepoPath) {
@@ -91,18 +105,62 @@ ipcMain.handle('git-execute', async (event, { command, args }) => {
   }
 
   try {
-    const env = { ...process.env };
-    if (args.token) {
-      env.GITVOICE_TOKEN = args.token;
-      delete args.token; // Don't pass token in args
+    let remoteUrl = null;
+    let modifiedArgs = [...args];
+
+    // Detect remote URL for authentication
+    if (args.includes('clone')) {
+      remoteUrl = args.find(arg => arg.startsWith('http') || arg.startsWith('git@'));
+      if (remoteUrl && remoteUrl.startsWith('http')) {
+        const authUrl = trampoline.getAuthenticatedUrl(remoteUrl);
+        const index = modifiedArgs.indexOf(remoteUrl);
+        if (index !== -1) {
+          modifiedArgs[index] = authUrl;
+        }
+      }
+    } else if (currentRepoPath) {
+      try {
+        // Try getting the remote URL for the current branch first
+        const branchRes = await GitProcess.exec(['symbolic-ref', '--short', 'HEAD'], currentRepoPath);
+        let remoteName = 'origin';
+        if (branchRes.exitCode === 0) {
+          const branch = branchRes.stdout.trim();
+          const remoteRes = await GitProcess.exec(['config', '--get', `branch.${branch}.remote`], currentRepoPath);
+          if (remoteRes.exitCode === 0) {
+            remoteName = remoteRes.stdout.trim();
+          }
+        }
+
+        const remoteResult = await GitProcess.exec(['remote', 'get-url', remoteName], currentRepoPath);
+        if (remoteResult.exitCode === 0) {
+          remoteUrl = remoteResult.stdout.trim();
+        } else if (remoteName !== 'origin') {
+          // Fallback to origin
+          const originResult = await GitProcess.exec(['remote', 'get-url', 'origin'], currentRepoPath);
+          if (originResult.exitCode === 0) {
+            remoteUrl = originResult.stdout.trim();
+          }
+        }
+      } catch (e) {
+        console.error('[Electron] Failed to detect remote URL:', e);
+      }
     }
-    const result = await GitProcess.exec(args, currentRepoPath, { env });
+
+    const env = trampoline.getGitEnv(remoteUrl);
+    env.GIT_TERMINAL_PROMPT = '0'; // Don't hang on auth prompts
+
+    const result = await GitProcess.exec(modifiedArgs, currentRepoPath || process.cwd(), { env });
+
+    // SEC-004: Cleanup askpass script after execution
+    trampoline.cleanupAskPassScript();
+
     return {
       success: result.exitCode === 0,
       output: result.stdout || result.stderr,
       exitCode: result.exitCode
     };
   } catch (error) {
+    trampoline.cleanupAskPassScript();
     return { success: false, error: error.message };
   }
 });
@@ -154,7 +212,7 @@ ipcMain.handle('git-status', async () => {
 
     // Create a timeout promise (reduced to 3s for responsiveness)
     const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('git status timed out')), 3000)
+      setTimeout(() => reject(new Error('git status timed out')), 10000)
     );
 
     // Execute git status
@@ -181,9 +239,10 @@ ipcMain.handle('git-status', async () => {
       lines.forEach(line => {
         if (line.startsWith('##')) return;
         const status = line.substring(0, 2);
-        if (status.includes('M')) modified++;
-        if (status.includes('A')) staged++;
-        if (status.includes('??')) untracked++;
+        // Git status format is XY. X is index, Y is working tree.
+        if (status[0] !== ' ' && status[0] !== '?') staged++;
+        if (status[1] !== ' ' && status[1] !== '?') modified++;
+        if (status === '??') untracked++;
       });
 
       return {
@@ -212,9 +271,9 @@ ipcMain.handle('git-current-branch', async (event) => {
   try {
     console.log('[Electron] executing fallback git-current-branch...');
 
-    // Timeout for fallback too (1s)
+    // Timeout for fallback (now 5s)
     const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('git branch check timed out')), 1000)
+      setTimeout(() => reject(new Error('git branch check timed out')), 5000)
     );
 
     const execPromise = GitProcess.exec(['symbolic-ref', '--short', 'HEAD'], currentRepoPath);
@@ -495,7 +554,11 @@ ipcMain.handle('git-diff', async (event, options = {}) => {
 
 // Open external URL
 ipcMain.handle('open-external', async (event, url) => {
-  await shell.openExternal(url);
+  if (url.startsWith('https://') || url.startsWith('http://')) {
+    await shell.openExternal(url);
+  } else {
+    console.warn('[Security] Blocked attempt to open non-http/https URL:', url);
+  }
 });
 
 // Get current repository path
@@ -806,11 +869,22 @@ ipcMain.handle('transcribe-local', async (event, { audioData, modelPath }) => {
     console.log(`[Whisper] Local transcription requested (Audio length: ${audioData.length} samples)`);
 
     // Use dynamic import for transformers.js (ESM)
-    const { pipeline, env } = await import('@xenova/transformers');
+    console.log('[Whisper] Loading transformers.js...');
+    const transformers = await import('@huggingface/transformers');
+    const pipeline = transformers.pipeline || (transformers.default && transformers.default.pipeline);
+    const env = transformers.env || (transformers.default && transformers.default.env);
+
+    if (!env) {
+      throw new Error('Transformers environment (env) is undefined. Initializing failed.');
+    }
 
     // Configure for STRICT OFFLINE mode
     env.allowRemoteModels = false;
     env.localModelPath = modelsDir;
+
+    // Disable node-specific backends that might trigger sharp loading
+    env.backends.onnx.wasm.numThreads = 1;
+    console.log('[Whisper] transformers.js loaded.');
 
     // Verify audio data
     let maxAmp = 0;
@@ -827,7 +901,7 @@ ipcMain.handle('transcribe-local', async (event, { audioData, modelPath }) => {
       try {
         // We look for 'whisper-tiny.en' in the modelsDir
         transcriptionPipeline = await pipeline('automatic-speech-recognition', 'whisper-tiny.en', {
-          quantized: true,
+          dtype: 'q8', // v3 use dtype for quantization
         });
         console.log('[Whisper] Engine ready.');
       } catch (loadError) {
@@ -843,7 +917,20 @@ ipcMain.handle('transcribe-local', async (event, { audioData, modelPath }) => {
     console.log('[Whisper] Inference starting...');
 
     // Ensure data is Float32Array for transformers.js
-    const inputTensor = new Float32Array(audioData);
+    // Ensure data is Float32Array for transformers.js
+    console.log(`[Whisper] audioData type: ${typeof audioData}, constructor: ${audioData?.constructor?.name}, length: ${audioData?.length}`);
+
+    let inputTensor;
+    if (audioData instanceof Float32Array) {
+      inputTensor = audioData;
+    } else if (Array.isArray(audioData) || (audioData && typeof audioData === 'object' && 'length' in audioData)) {
+      console.log('[Whisper] Converting audioData to Float32Array...');
+      inputTensor = Float32Array.from(audioData);
+    } else {
+      inputTensor = new Float32Array(audioData);
+    }
+
+    console.log(`[Whisper] inputTensor length: ${inputTensor.length}`);
 
     // Run transcription with minimal options (defaults are best for .en models)
     const transcriptionPromise = transcriptionPipeline(inputTensor);

@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   browseRepository: () => ipcRenderer.invoke('browse-repository'),
   getRepoPath: () => ipcRenderer.invoke('get-repo-path'),
   setRepoPath: (path) => ipcRenderer.invoke('set-repo-path', path),
+  showSaveDialog: (options) => ipcRenderer.invoke('show-save-dialog', options),
 
   // Git operations
   gitStatus: () => ipcRenderer.invoke('git-status'),

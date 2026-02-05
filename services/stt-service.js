@@ -77,6 +77,8 @@ class STTService {
     this.useLocalModel = enabled;
     if (enabled) {
       this.useWebSpeech = false;
+    } else {
+      this.useWebSpeech = true;
     }
   }
 
@@ -165,7 +167,7 @@ class STTService {
       }
     }
 
-    return new Promise(async (resolve, reject) => {
+    return new Promise((resolve, reject) => {
       if (this.useWebSpeech) {
         // For Web Speech API, we need to use real-time recognition
         // This method is for compatibility with local models
@@ -195,17 +197,7 @@ class STTService {
           }
         }, 10000);
       } else {
-        // Delegate to main process for local Whisper inference
-        try {
-          const result = await window.electronAPI.transcribeAudio(audioBlob);
-          if (result.success) {
-            resolve(result.transcript);
-          } else {
-            reject(new Error(result.error || 'Transcription failed'));
-          }
-        } catch (error) {
-          reject(error);
-        }
+        reject(new Error('Transcription mode not recognized (Web Speech disabled and Local Model disabled)'));
       }
     });
   }

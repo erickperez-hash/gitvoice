@@ -14,6 +14,17 @@ let practiceMode;
 let learningOverlay;
 let modelDownloader;
 
+// Helper to escape HTML characters
+function escapeHTML(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 // State
 let isLearningMode = true;
 let isPracticeMode = false;
@@ -66,11 +77,6 @@ function initializeElements() {
   // New elements for cloning
   elements.cloneUrl = document.getElementById('clone-url');
   elements.cloneRepoBtn = document.getElementById('clone-repo');
-  elements.authType = document.getElementById('auth-type');
-  elements.tokenAuthFields = document.getElementById('token-auth-fields');
-  elements.passwordAuthFields = document.getElementById('password-auth-fields');
-  elements.gitUsername = document.getElementById('git-username');
-  elements.gitPassword = document.getElementById('git-password');
 }
 
 function initializeServices() {
@@ -138,19 +144,12 @@ function bindEvents() {
   // Cloning
   elements.cloneRepoBtn?.addEventListener('click', cloneRepository);
 
-  // Auth type toggle
-  elements.authType?.addEventListener('change', handleAuthTypeChange);
-
   // GitHub Sign In
   document.getElementById('github-signin-btn')?.addEventListener('click', handleGitHubSignIn);
   document.getElementById('close-auth-modal')?.addEventListener('click', closeAuthModal);
   document.getElementById('auth-copy-btn')?.addEventListener('click', copyUserCode);
   document.getElementById('auth-open-browser-btn')?.addEventListener('click', openGitHubLogin);
 
-  // Settings
-  elements.settingsBtn?.addEventListener('click', openSettings);
-  document.getElementById('close-settings')?.addEventListener('click', closeSettings);
-  document.getElementById('settings-save')?.addEventListener('click', saveSettings);
 
   // Network awareness for Offline Mode
   window.addEventListener('online', updateVoiceModeBasedOnNetwork);
@@ -305,29 +304,15 @@ function resetCloneUI() {
   document.getElementById('cloning-connector').style.display = 'none';
 }
 
-function handleAuthTypeChange() {
-  const type = elements.authType.value;
-  if (type === 'token') {
-    elements.tokenAuthFields.style.display = 'block';
-    elements.passwordAuthFields.style.display = 'none';
-  } else {
-    elements.tokenAuthFields.style.display = 'none';
-    elements.passwordAuthFields.style.display = 'block';
-  }
-}
-
 // GitHub Device Flow
 let authPollInterval = null;
 let currentVerificationUri = '';
 
 async function handleGitHubSignIn() {
-  // Get custom client ID or use default (GitHub CLI public ID)
-  const customClientId = document.getElementById('github-client-id').value.trim();
-
   // NOTE: '178c6fc778ccc68e1d6a' is the public Client ID for GitHub CLI.
   // We use it here to provide a seamless "Connect" experience for users without
   // requiring them to create their own OAuth App.
-  const effectiveClientId = customClientId || '178c6fc778ccc68e1d6a';
+  const effectiveClientId = '178c6fc778ccc68e1d6a';
 
   const modal = document.getElementById('device-auth-modal');
   const userCodeEl = document.getElementById('device-user-code');
@@ -400,18 +385,16 @@ async function pollForGitHubToken(deviceCode, interval) {
       pollStatusEl.textContent = 'Success! Saving credentials...';
 
       // Save the token directly via the API
-      const service = document.getElementById('git-service').value;
       const saveResult = await window.electronAPI.saveCredential({
-        service,
+        service: 'github',
         authType: 'token',
         token: result.token
       });
 
       if (saveResult.success) {
         pollStatusEl.textContent = 'Credentials saved!';
-        credentialStatusEl.innerHTML = `<span class="success">✓ Connected as ${saveResult.username || 'GitHub User'}</span>`;
 
-        // Update services list
+        // Update credentials display
         const services = await window.electronAPI.getConfiguredServices();
         updateCredentialStatus(services);
 
@@ -441,7 +424,9 @@ async function browseRepository() {
       elements.repoStatus.classList.remove('invalid');
       elements.voiceBtn.disabled = false;
 
-      await refreshGitStatus();
+      // Status will refresh after first command
+      elements.gitStatus.innerHTML = '<span class="placeholder">Initial status pending first command...</span>';
+
       await narrationService.speak('Repository loaded successfully. Ready for your commands.');
     } else {
       elements.repoStatus.textContent = result.error;
@@ -478,7 +463,7 @@ function displayGitStatus(result) {
   let html = '';
 
   if (data?.branch) {
-    html += `<div class="status-item"><span class="branch-name">${data.branch}</span></div>`;
+    html += `<div class="status-item"><span class="branch-name">${escapeHTML(data.branch)}</span></div>`;
   }
 
   if (data?.clean) {
@@ -625,8 +610,6 @@ async function startVoiceCommand() {
       await narrationService.speak('This command will modify the remote repository. Say "execute" or click the button to proceed.');
       resetVoiceUI();
     }
-
-    resetVoiceUI();
   } catch (error) {
     console.error('[Voice] Command flow failed:', error);
     await narrationService.announceStep('error', error.message);
@@ -1070,113 +1053,12 @@ async function initializeCredentials() {
     document.getElementById('git-email').value = gitUser.email;
   }
 
-  // Pre-fill username if we have a service configured
-  if (services.length > 0) {
-    const defaultService = services.find(s => s.service === 'github') || services[0];
-    if (defaultService.username) {
-      elements.gitUsername.value = defaultService.username;
-    }
-  }
-
   // Check SSH keys
   const sshKeys = await window.electronAPI.checkSSHKeys();
   displaySSHKeys(sshKeys);
 
-  // Bind credential events
-  document.getElementById('save-token')?.addEventListener('click', saveCredential);
-  document.getElementById('test-token')?.addEventListener('click', testCredential);
+  // Bind git user events
   document.getElementById('save-git-user')?.addEventListener('click', saveGitUser);
-  document.getElementById('token-help-link')?.addEventListener('click', (e) => {
-    e.preventDefault();
-    const service = document.getElementById('git-service').value;
-    const urls = {
-      github: 'https://github.com/settings/tokens/new',
-      gitlab: 'https://gitlab.com/-/profile/personal_access_tokens',
-      bitbucket: 'https://bitbucket.org/account/settings/app-passwords/'
-    };
-    window.electronAPI.openExternal(urls[service] || urls.github);
-  });
-}
-
-async function saveCredential() {
-  const service = document.getElementById('git-service').value;
-  const authType = elements.authType.value;
-  const statusEl = document.getElementById('credential-status');
-
-  const payload = { service, authType };
-
-  if (authType === 'token') {
-    const token = document.getElementById('git-token').value;
-    if (!token) {
-      statusEl.innerHTML = '<span class="error">Please enter a token</span>';
-      return;
-    }
-    payload.token = token;
-  } else {
-    const username = elements.gitUsername.value.trim();
-    const password = elements.gitPassword.value.trim();
-
-    if (!username || !password) {
-      statusEl.innerHTML = '<span class="error">Please enter both username and password</span>';
-      return;
-    }
-    payload.username = username;
-    payload.password = password;
-  }
-
-  statusEl.innerHTML = '<span class="loading">Validating credentials...</span>';
-
-  try {
-    const result = await window.electronAPI.saveCredential(payload);
-
-    if (result.success) {
-      statusEl.innerHTML = `<span class="success">Credentials saved! Connected as ${result.username}</span>`;
-
-      // Clear sensitive fields
-      if (authType === 'token') {
-        document.getElementById('git-token').value = '';
-      } else {
-        elements.gitPassword.value = '';
-      }
-
-      // Update services list
-      const services = await window.electronAPI.getConfiguredServices();
-      updateCredentialStatus(services);
-    } else {
-      statusEl.innerHTML = `<span class="error">Error: ${result.error}</span>`;
-    }
-  } catch (error) {
-    statusEl.innerHTML = `<span class="error">Error: ${error.message}</span>`;
-  }
-}
-
-async function testCredential() {
-  const statusEl = document.getElementById('credential-status');
-  statusEl.innerHTML = '<span class="loading">Testing connection...</span>';
-
-  try {
-    // Try to get remote URL from current repository
-    let testUrl = null;
-    const remoteResult = await window.electronAPI.getRemoteUrl();
-
-    if (remoteResult.success && remoteResult.url) {
-      testUrl = remoteResult.url;
-    } else {
-      // No repository selected - use a default GitHub test URL
-      // This allows users to verify their credentials before cloning
-      testUrl = 'https://github.com/git/git.git';
-      console.log('[Test] No repository selected, testing with default GitHub URL');
-    }
-
-    const testResult = await window.electronAPI.testConnection(testUrl);
-    if (testResult.success) {
-      statusEl.innerHTML = '<span class="success">✓ Connection successful!</span>';
-    } else {
-      statusEl.innerHTML = `<span class="error">✗ Connection failed: ${testResult.error}</span>`;
-    }
-  } catch (error) {
-    statusEl.innerHTML = `<span class="error">✗ Error: ${error.message}</span>`;
-  }
 }
 
 async function saveGitUser() {
@@ -1200,16 +1082,27 @@ function updateCredentialStatus(services) {
   const statusEl = document.getElementById('credential-status');
   if (!statusEl) return;
 
-  if (services.length === 0) {
-    statusEl.innerHTML = '<span class="hint">No credentials configured</span>';
+  const githubCred = services.find(s => s.service === 'github');
+
+  if (!githubCred) {
+    statusEl.innerHTML = '<span class="hint">Not connected to GitHub</span>';
   } else {
-    const list = services.map(s =>
-      `<div class="credential-item">
-        <span class="service-name">${s.service}</span>
-        <span class="service-user">${s.username}</span>
-      </div>`
-    ).join('');
-    statusEl.innerHTML = list;
+    statusEl.innerHTML = `
+      <div class="flex-center flex-column">
+        <span class="success" style="color: var(--success-color);">✓ Connected as ${escapeHTML(githubCred.username)}</span>
+        <button id="github-signout-btn" class="btn btn-secondary btn-small mt-5">Disconnect</button>
+      </div>
+    `;
+
+    document.getElementById('github-signout-btn')?.addEventListener('click', async () => {
+      if (confirm('Are you sure you want to disconnect from GitHub?')) {
+        const result = await window.electronAPI.removeCredential('github');
+        if (result.success) {
+          const services = await window.electronAPI.getConfiguredServices();
+          updateCredentialStatus(services);
+        }
+      }
+    });
   }
 }
 
@@ -1222,8 +1115,8 @@ function displaySSHKeys(keys) {
   } else {
     container.innerHTML = keys.map(key =>
       `<div class="ssh-key-item">
-        <span class="key-type">${key.type}</span>
-        <code class="key-fingerprint">${key.fingerprint}</code>
+        <span class="key-type">${escapeHTML(key.type)}</span>
+        <code class="key-fingerprint">${escapeHTML(key.fingerprint)}</code>
       </div>`
     ).join('');
   }
@@ -1532,15 +1425,15 @@ function renderPracticeHistory() {
     return;
   }
 
-  listEl.innerHTML = history.reverse().map(item => `
+  listEl.innerHTML = [...history].reverse().map(item => `
     <div class="history-item">
       <div class="history-header">
-        <span class="history-command">${item.command}</span>
+        <span class="history-command">${escapeHTML(item.command)}</span>
         <span class="history-time">${new Date(item.timestamp).toLocaleTimeString()}</span>
       </div>
       <div class="history-body">
-        <div class="history-description">${item.simulation.description}</div>
-        <div class="history-would-do"><strong>Would do:</strong> ${item.simulation.wouldDo}</div>
+        <div class="history-description">${escapeHTML(item.simulation.description)}</div>
+        <div class="history-would-do"><strong>Would do:</strong> ${escapeHTML(item.simulation.wouldDo)}</div>
       </div>
     </div>
   `).join('');

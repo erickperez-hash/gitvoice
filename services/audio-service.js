@@ -207,10 +207,7 @@ class AudioService {
     };
 
     this.mediaRecorder.onstop = () => {
-      const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
-      if (this.onAudioData) {
-        this.onAudioData(audioBlob);
-      }
+      console.log('[Audio] MediaRecorder stopped');
     };
 
     this.mediaRecorder.start(100); // Collect data every 100ms
@@ -288,21 +285,19 @@ class AudioService {
   }
 
   async recordForDuration(durationMs) {
-    return new Promise(async (resolve, reject) => {
-      if (!this.stream) {
-        const initialized = await this.initialize();
-        if (!initialized) {
-          reject(new Error('Failed to initialize audio'));
-          return;
-        }
+    if (!this.stream) {
+      const initialized = await this.initialize();
+      if (!initialized) {
+        throw new Error('Failed to initialize audio stream');
       }
+    }
 
+    return new Promise((resolve, reject) => {
       this.audioChunks = [];
       this.startRecording();
 
-      setTimeout(() => {
-        this.stopRecording();
-        const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
+      setTimeout(async () => {
+        const audioBlob = await this.stopRecording();
         resolve(audioBlob);
       }, durationMs);
     });

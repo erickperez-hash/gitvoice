@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' https://api.github.com https://huggingface.co https://*.huggingface.co;">
+    content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' https://api.github.com https://huggingface.co https://*.huggingface.co https://raw.githubusercontent.com;">
   <title>GitVoice - Learn Git by Voice</title>
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -71,12 +71,12 @@
           <div class="step-icon">&#129504;</div>
         </div>
         <div class="step-connector"></div>
-        <div class="step" id="step-cloning" data-step="clone" style="display: none;">
+        <div class="step hidden" id="step-cloning" data-step="clone">
           <div class="step-number">C</div>
           <div class="step-label">Cloning</div>
           <div class="step-icon">&#128229;</div>
         </div>
-        <div id="cloning-connector" class="step-connector" style="display: none;"></div>
+        <div id="cloning-connector" class="step-connector hidden"></div>
         <div class="step" id="step-executing" data-step="3">
           <div class="step-number">3</div>
           <div class="step-label">Executing</div>
@@ -106,7 +106,7 @@
     </section>
 
     <!-- Command Preview -->
-    <section class="command-preview" id="command-preview" style="display: none;">
+    <section class="command-preview hidden" id="command-preview">
       <h3>Detected Command:</h3>
       <div class="preview-content">
         <span class="action-badge" id="preview-action"></span>
@@ -296,46 +296,14 @@
 
         <div class="settings-group">
           <h3>Git Credentials</h3>
-          <div class="setting-item">
-            <label for="git-service">Service</label>
-            <select id="git-service">
-              <option value="github">GitHub</option>
-              <option value="gitlab">GitLab</option>
-              <option value="bitbucket">Bitbucket</option>
-            </select>
-          </div>
-
           <div id="github-oauth-section">
-            <div class="setting-item" style="margin-bottom: 5px;">
-              <button id="github-signin-btn" class="btn btn-primary"
-                style="width: 100%; display: flex; justify-content: center; align-items: center; gap: 8px;">
-                <span class="icon" style="font-size: 1.2em;">&#9989;</span> Sign in with GitHub
+            <div class="setting-item">
+              <button id="github-signin-btn" class="btn btn-primary w-full flex-center">
+                <span class="icon github-btn-icon">&#9989;</span> Sign in with GitHub
               </button>
             </div>
           </div>
-
-          <div id="token-auth-fields" style="display: none;">
-            <div class="setting-item">
-              <label for="git-token">Access Token</label>
-              <input type="password" id="git-token" placeholder="Enter your token">
-            </div>
-          </div>
-
-          <div id="password-auth-fields" style="display: none;">
-            <div class="setting-item">
-              <label for="git-username">Username</label>
-              <input type="text" id="git-username" placeholder="GitHub username">
-            </div>
-            <div class="setting-item">
-              <label for="git-password">Password (or Personal Access Token)</label>
-              <input type="password" id="git-password" placeholder="Your password or PAT">
-            </div>
-          </div>
-
-          <div class="setting-item">
-            <button id="test-token" class="btn btn-secondary" style="width: 100%;">Test Connection</button>
-          </div>
-          <div id="credential-status" class="credential-status" style="margin-top: 10px; font-weight: bold;"></div>
+          <div id="credential-status" class="credential-status"></div>
         </div>
 
         <div class="settings-group">
@@ -369,7 +337,7 @@
             </div>
             <button id="download-stt" class="btn btn-secondary btn-small">Download</button>
           </div>
-          <div id="stt-progress-container" class="model-download-progress" style="display: none;">
+          <div id="stt-progress-container" class="model-download-progress hidden">
             <div class="progress-bar-container">
               <div id="stt-progress-bar" class="progress-bar-fill"></div>
             </div>
@@ -386,7 +354,7 @@
             </div>
             <button id="download-tts" class="btn btn-secondary btn-small">Download</button>
           </div>
-          <div id="tts-progress-container" class="model-download-progress" style="display: none;">
+          <div id="tts-progress-container" class="model-download-progress hidden">
             <div class="progress-bar-container">
               <div id="tts-progress-bar" class="progress-bar-fill"></div>
             </div>
@@ -456,30 +424,29 @@
   <!-- GitHub Device Auth Modal -->
   <div id="device-auth-modal" class="modal hidden">
     <div class="modal-overlay"></div>
-    <div class="modal-content" style="max-width: 500px; text-align: center;">
+    <div class="modal-content device-auth-content">
       <div class="modal-header">
         <h2>GitHub Sign In</h2>
         <button class="close-modal" id="close-auth-modal">&times;</button>
       </div>
       <div class="modal-body">
-        <p style="margin-bottom: 20px;">To sign in, copy the code below and enter it on the GitHub page that opens.</p>
+        <p class="mb-20">To sign in, copy the code below and enter it on the GitHub page that opens.</p>
 
-        <div style="background: #f1f2f3; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-          <h1 id="device-user-code"
-            style="letter-spacing: 2px; font-family: monospace; color: var(--primary-color); margin: 0;">Loading...</h1>
+        <div class="auth-code-container">
+          <h1 id="device-user-code" class="auth-user-code">Loading...</h1>
         </div>
 
-        <button id="auth-copy-btn" class="btn btn-secondary" style="margin-bottom: 20px;">
+        <button id="auth-copy-btn" class="btn btn-secondary mb-20">
           <span class="icon">&#128203;</span> Copy Code
         </button>
 
-        <div style="margin-bottom: 20px;">
+        <div class="mb-20">
           <button id="auth-open-browser-btn" class="btn btn-primary btn-large">
             Open GitHub Login Page
           </button>
         </div>
 
-        <div id="auth-poll-status" style="color: var(--text-muted); font-size: 0.9em; min-height: 20px;">
+        <div id="auth-poll-status" class="auth-poll-status">
           Waiting for you to authorize...
         </div>
       </div>

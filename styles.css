@@ -1429,3 +1429,77 @@ body {
   font-style: italic;
   font-size: 13px;
 }
+/* Utility Classes */
+.hidden {
+  display: none !important;
+}
+
+.w-full {
+  width: 100%;
+}
+
+.flex-center {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+}
+
+.flex-column {
+  flex-direction: column;
+}
+
+.flex-center.flex-column {
+  gap: 4px;
+}
+
+.text-center {
+  text-align: center;
+}
+
+.font-bold {
+  font-weight: bold;
+}
+
+.mt-5 {
+  margin-top: 5px;
+}
+
+.mb-20 {
+  margin-bottom: 20px;
+}
+
+.github-btn-icon {
+  font-size: 1.2em;
+}
+
+.credential-status {
+  margin-top: 5px;
+  font-weight: bold;
+  text-align: center;
+}
+
+.device-auth-content {
+  max-width: 500px;
+  text-align: center;
+}
+
+.auth-code-container {
+  background: #f1f2f3;
+  padding: 20px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+.auth-user-code {
+  letter-spacing: 2px;
+  font-family: monospace;
+  color: var(--primary-color);
+  margin: 0;
+}
+
+.auth-poll-status {
+  color: var(--text-muted);
+  font-size: 0.9em;
+  min-height: 20px;
+}

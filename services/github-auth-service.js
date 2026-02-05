@@ -18,7 +18,8 @@ class GitHubAuthService {
 
         try {
             const response = await axios.post(this.deviceCodeUrl, {
-                client_id: this.clientId
+                client_id: this.clientId,
+                scope: 'repo read:org gist user'
             }, {
                 headers: { 'Accept': 'application/json' }
             });
