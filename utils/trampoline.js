@@ -4,6 +4,7 @@
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
+const { safeStorage } = require('electron');
 
 class Trampoline {
   constructor() {
@@ -27,6 +28,21 @@ class Trampoline {
       if (fs.existsSync(this.credentialFile)) {
         const data = fs.readFileSync(this.credentialFile, 'utf8');
         const saved = JSON.parse(data);
+
+        // Decrypt tokens if safeStorage is available
+        const hasEncryption = safeStorage && safeStorage.isEncryptionAvailable();
+
+        for (const service in saved) {
+          if (saved[service].token && hasEncryption) {
+            try {
+              const buffer = Buffer.from(saved[service].token, 'base64');
+              saved[service].token = safeStorage.decryptString(buffer);
+            } catch (e) {
+              console.warn(`Failed to decrypt token for ${service}, it might be plaintext or from another machine`);
+            }
+          }
+        }
+
         this.credentials = { ...this.credentials, ...saved };
       }
     } catch (error) {
@@ -42,8 +58,19 @@ class Trampoline {
         fs.mkdirSync(dir, { recursive: true });
       }
 
-      // In production, this should use OS keychain
-      fs.writeFileSync(this.credentialFile, JSON.stringify(this.credentials, null, 2), {
+      // Encrypt tokens if safeStorage is available
+      const toSave = JSON.parse(JSON.stringify(this.credentials));
+      const hasEncryption = safeStorage && safeStorage.isEncryptionAvailable();
+
+      if (hasEncryption) {
+        for (const service in toSave) {
+          if (toSave[service]?.token) {
+            toSave[service].token = safeStorage.encryptString(toSave[service].token).toString('base64');
+          }
+        }
+      }
+
+      fs.writeFileSync(this.credentialFile, JSON.stringify(toSave, null, 2), {
         mode: 0o600 // Read/write for owner only
       });
     } catch (error) {
@@ -109,6 +136,7 @@ class Trampoline {
 
     if (cred?.token) {
       // Use credential helper approach
+      env.GITVOICE_TOKEN = cred.token; // Set for our askpass script
       env.GIT_ASKPASS = this.createAskPassScript(cred.token);
 
       // For GitHub, can also use token directly in URL
@@ -140,11 +168,11 @@ class Trampoline {
     const isWindows = process.platform === 'win32';
 
     if (isWindows) {
-      const script = `@echo off\necho ${token}`;
+      const script = `@echo off\necho %GITVOICE_TOKEN%`;
       fs.writeFileSync(scriptPath + '.bat', script, { mode: 0o700 });
       return scriptPath + '.bat';
     } else {
-      const script = `#!/bin/sh\necho "${token}"`;
+      const script = `#!/bin/sh\necho "$GITVOICE_TOKEN"`;
       fs.writeFileSync(scriptPath, script, { mode: 0o700 });
       return scriptPath;
     }
@@ -239,6 +267,7 @@ class Trampoline {
       const env = {
         ...process.env,
         GIT_ASKPASS: askPassPath,
+        GITVOICE_TOKEN: password, // Set for our askpass script
         GIT_TERMINAL_PROMPT: '0'
       };
 

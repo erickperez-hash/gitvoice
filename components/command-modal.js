@@ -79,8 +79,12 @@ class CommandModal {
     }
 
     // Set learning tip
+    const tipContainer = this.modal.querySelector('.learning-tip');
     if (this.elements.learningTip && commandData.tip) {
       this.elements.learningTip.textContent = commandData.tip;
+      if (tipContainer) tipContainer.style.display = 'block';
+    } else {
+      if (tipContainer) tipContainer.style.display = 'none';
     }
 
     // Clear output

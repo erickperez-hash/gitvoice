@@ -401,35 +401,84 @@ class LearningOverlay {
   }
 
   loadQuiz(topic) {
-    const quizzes = {
-      basics: {
-        question: 'What command shows the current state of your working directory?',
-        options: ['git log', 'git status', 'git show', 'git diff'],
-        correct: 1
-      },
-      branching: {
-        question: 'What command creates a new branch called "feature"?',
-        options: ['git new feature', 'git branch feature', 'git create feature', 'git make feature'],
-        correct: 1
-      },
-      remote: {
-        question: 'What does "git push" do?',
-        options: [
-          'Downloads changes from remote',
-          'Uploads local commits to remote',
-          'Creates a new branch',
-          'Shows commit history'
-        ],
-        correct: 1
-      },
-      workflow: {
-        question: 'What should you do before pushing your changes?',
-        options: ['Delete branches', 'Pull latest changes', 'Clear the cache', 'Restart Git'],
-        correct: 1
-      }
+    const questionPool = {
+      basics: [
+        {
+          question: 'What command shows the current state of your working directory?',
+          options: ['git status', 'git log', 'git show', 'git diff'],
+          correct: 'git status'
+        },
+        {
+          question: 'What is a "commit" in Git?',
+          options: ['A snapshot of your project', 'A way to delete files', 'A remote server', 'A branch name'],
+          correct: 'A snapshot of your project'
+        },
+        {
+          question: 'Which area is used to prepare changes for a commit?',
+          options: ['Staging Area', 'Working Directory', 'Remote Repository', 'The Trash'],
+          correct: 'Staging Area'
+        }
+      ],
+      branching: [
+        {
+          question: 'What command creates a new branch called "feature"?',
+          options: ['git branch feature', 'git new feature', 'git create feature', 'git make feature'],
+          correct: 'git branch feature'
+        },
+        {
+          question: 'How do you switch from "main" to a branch called "dev"?',
+          options: ['git checkout dev', 'git switch-to dev', 'git move dev', 'git goto dev'],
+          correct: 'git checkout dev'
+        },
+        {
+          question: 'What does "merging" do?',
+          options: ['Integrates changes from one branch into another', 'Deletes a branch', 'Renames a file', 'Uploads to GitHub'],
+          correct: 'Integrates changes from one branch into another'
+        }
+      ],
+      remote: [
+        {
+          question: 'What does "git push" do?',
+          options: ['Uploads local commits to remote', 'Downloads changes from remote', 'Creates a new branch', 'Shows commit history'],
+          correct: 'Uploads local commits to remote'
+        },
+        {
+          question: 'What is "origin" in Git?',
+          options: ['The default name for your remote repository', 'The very first commit', 'Your local computer', 'A set of ignored files'],
+          correct: 'The default name for your remote repository'
+        },
+        {
+          question: 'Which command downloads changes from remote without merging them?',
+          options: ['git fetch', 'git pull', 'git download', 'git sync'],
+          correct: 'git fetch'
+        }
+      ],
+      workflow: [
+        {
+          question: 'What should you do before pushing your changes?',
+          options: ['Pull latest changes', 'Delete branches', 'Clear the cache', 'Restart Git'],
+          correct: 'Pull latest changes'
+        },
+        {
+          question: 'What makes a good commit message?',
+          options: ['Descriptive and concise', 'Long and detailed', 'Just a date', 'Random characters'],
+          correct: 'Descriptive and concise'
+        },
+        {
+          question: 'What is the "Golden Rule" of Git?',
+          options: ['Pull before you push', 'Always work on main', 'Never use branches', 'Commit once a week'],
+          correct: 'Pull before you push'
+        }
+      ]
     };
 
-    const quiz = quizzes[topic] || quizzes.basics;
+    const pool = questionPool[topic] || questionPool.basics;
+    const quiz = pool[Math.floor(Math.random() * pool.length)];
+
+    // Shuffle options
+    const shuffledOptions = [...quiz.options].sort(() => Math.random() - 0.5);
+    const correctIndex = shuffledOptions.indexOf(quiz.correct);
+
     const questionEl = this.overlay.querySelector('#quiz-question');
     const optionsEl = this.overlay.querySelector('#quiz-options');
     const resultEl = this.overlay.querySelector('#quiz-result');
@@ -438,14 +487,14 @@ class LearningOverlay {
     if (resultEl) resultEl.innerHTML = '';
 
     if (optionsEl) {
-      optionsEl.innerHTML = quiz.options.map((opt, i) => `
+      optionsEl.innerHTML = shuffledOptions.map((opt, i) => `
         <button class="quiz-option" data-index="${i}">${opt}</button>
       `).join('');
 
       optionsEl.querySelectorAll('.quiz-option').forEach(btn => {
         btn.addEventListener('click', (e) => {
           const selected = parseInt(e.target.dataset.index);
-          this.checkAnswer(selected, quiz.correct);
+          this.checkAnswer(selected, correctIndex);
         });
       });
     }

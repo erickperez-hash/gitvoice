@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, globalShortcut, shell, systemPreferences } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, globalShortcut, shell, systemPreferences, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const GitProcess = require('dugite');
@@ -91,7 +91,12 @@ ipcMain.handle('git-execute', async (event, { command, args }) => {
   }
 
   try {
-    const result = await GitProcess.exec(args, currentRepoPath);
+    const env = { ...process.env };
+    if (args.token) {
+      env.GITVOICE_TOKEN = args.token;
+      delete args.token; // Don't pass token in args
+    }
+    const result = await GitProcess.exec(args, currentRepoPath, { env });
     return {
       success: result.exitCode === 0,
       output: result.stdout || result.stderr,
@@ -101,6 +106,23 @@ ipcMain.handle('git-execute', async (event, { command, args }) => {
     return { success: false, error: error.message };
   }
 });
+
+// SafeStorage Handlers
+ipcMain.handle('encrypt-string', async (event, plainText) => {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('Encryption is not available on this system');
+  }
+  return safeStorage.encryptString(plainText).toString('base64');
+});
+
+ipcMain.handle('decrypt-string', async (event, encryptedBase64) => {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('Encryption is not available on this system');
+  }
+  const buffer = Buffer.from(encryptedBase64, 'base64');
+  return safeStorage.decryptString(buffer);
+});
+
 
 // Permission Management
 ipcMain.handle('check-microphone-permission', async () => {

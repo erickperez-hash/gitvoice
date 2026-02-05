@@ -23,6 +23,10 @@
           <span class="icon">&#127919;</span>
           Practice Mode
         </button>
+        <button id="practice-history-btn" class="btn btn-secondary" title="View practice history">
+          <span class="icon">&#128366;</span>
+          History
+        </button>
         <button id="learn-mode-toggle" class="btn btn-secondary">
           <span class="icon">&#128218;</span>
           Learning Mode: ON
@@ -130,7 +134,6 @@
     </section>
 
     <!-- Hotkey Hint -->
-    <!-- Hotkey Hint -->
     <div class="hotkey-hint">
       Press <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd> to activate voice command
     </div>
@@ -158,13 +161,11 @@
       </div>
 
       <div class="modal-body">
-        <!-- What GitVoice is doing -->
         <div class="action-description">
           <h3>What I'm Doing:</h3>
           <p id="action-description">Preparing to execute Git command...</p>
         </div>
 
-        <!-- The actual CLI command -->
         <div class="cli-command">
           <h3>The Command:</h3>
           <div class="terminal-window">
@@ -180,13 +181,11 @@
           </div>
         </div>
 
-        <!-- Command explanation -->
         <div class="command-breakdown">
           <h3>Command Breakdown:</h3>
           <div id="command-parts"></div>
         </div>
 
-        <!-- Live output -->
         <div class="command-output">
           <h3>Output:</h3>
           <div class="terminal-window">
@@ -196,13 +195,11 @@
           </div>
         </div>
 
-        <!-- Learning tips -->
         <div class="learning-tip">
           <h3><span class="tip-icon">&#128161;</span> Tip:</h3>
           <p id="learning-tip">Loading tip...</p>
         </div>
 
-        <!-- Try it yourself -->
         <div class="try-yourself">
           <h3>Try it yourself:</h3>
           <p>Copy this command and run it in your terminal:</p>
@@ -308,7 +305,6 @@
             </select>
           </div>
 
-          <!-- GitHub OAuth Section -->
           <div id="github-oauth-section">
             <div class="setting-item" style="margin-bottom: 5px;">
               <button id="github-signin-btn" class="btn btn-primary"
@@ -316,16 +312,6 @@
                 <span class="icon" style="font-size: 1.2em;">&#9989;</span> Sign in with GitHub
               </button>
             </div>
-            <!-- REMOVED - OR - divider -->
-          </div>
-
-          <!-- Hidden manual fields as per request -->
-          <div class="setting-item" style="display: none;">
-            <label for="auth-type">Authentication Type</label>
-            <select id="auth-type">
-              <option value="password" selected>Username & Password</option>
-              <option value="token">Personal Access Token (Direct)</option>
-            </select>
           </div>
 
           <div id="token-auth-fields" style="display: none;">
@@ -344,32 +330,12 @@
               <label for="git-password">Password (or Personal Access Token)</label>
               <input type="password" id="git-password" placeholder="Your password or PAT">
             </div>
-            <div class="setting-hint"
-              style="margin-top: -10px; margin-bottom: 10px; font-size: 0.85em; color: var(--text-muted);">
-              Note: GitHub requires a <strong>Personal Access Token (PAT)</strong> or App Password instead of your
-              account password.
-            </div>
           </div>
 
-          <!-- Advanced optional settings - HIDDEN -->
-          <details style="margin-bottom: 15px; font-size: 0.9em; display: none;">
-            <summary style="cursor: pointer; color: var(--text-muted);">Advanced: Custom Client ID</summary>
-            <div class="setting-item" style="margin-top: 10px;">
-              <label for="github-client-id">OAuth Client ID</label>
-              <input type="text" id="github-client-id" placeholder="Optional: Use your own App Client ID"
-                value="178c6fc778ccc68e1d6a">
-            </div>
-          </details>
-
           <div class="setting-item">
-            <!-- Hidden Save Button (Auto-save is used) -->
-            <button id="save-token" class="btn btn-secondary" style="display: none;">Save Credentials</button>
             <button id="test-token" class="btn btn-secondary" style="width: 100%;">Test Connection</button>
           </div>
           <div id="credential-status" class="credential-status" style="margin-top: 10px; font-weight: bold;"></div>
-          <div class="setting-hint" style="display: none;">
-            <a href="#" id="token-help-link">Need help with authentication?</a>
-          </div>
         </div>
 
         <div class="settings-group">
@@ -429,7 +395,6 @@
               <span id="tts-percentage">0%</span>
             </div>
           </div>
-          <div class="setting-hint">Download models to enable 100% offline voice commands.</div>
         </div>
       </div>
 
@@ -467,8 +432,61 @@
       </div>
     </div>
   </div>
+
+  <!-- Practice History Modal -->
+  <div id="practice-history-modal" class="modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2><span class="modal-icon">&#128366;</span> Practice History</h2>
+        <button class="close-modal" id="close-practice-history">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="practice-history-list" class="history-list">
+          <p class="placeholder">No practice history yet. Enable Practice Mode and try some commands!</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="clear-practice-history" class="btn btn-secondary">Clear History</button>
+        <button id="close-history-modal" class="btn btn-primary">Close</button>
+      </div>
+    </div>
   </div>
 
+  <!-- GitHub Device Auth Modal -->
+  <div id="device-auth-modal" class="modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-content" style="max-width: 500px; text-align: center;">
+      <div class="modal-header">
+        <h2>GitHub Sign In</h2>
+        <button class="close-modal" id="close-auth-modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="margin-bottom: 20px;">To sign in, copy the code below and enter it on the GitHub page that opens.</p>
+
+        <div style="background: #f1f2f3; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+          <h1 id="device-user-code"
+            style="letter-spacing: 2px; font-family: monospace; color: var(--primary-color); margin: 0;">Loading...</h1>
+        </div>
+
+        <button id="auth-copy-btn" class="btn btn-secondary" style="margin-bottom: 20px;">
+          <span class="icon">&#128203;</span> Copy Code
+        </button>
+
+        <div style="margin-bottom: 20px;">
+          <button id="auth-open-browser-btn" class="btn btn-primary btn-large">
+            Open GitHub Login Page
+          </button>
+        </div>
+
+        <div id="auth-poll-status" style="color: var(--text-muted); font-size: 0.9em; min-height: 20px;">
+          Waiting for you to authorize...
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
   <script src="utils/model-downloader.js"></script>
   <script src="components/command-modal.js"></script>
   <script src="components/progress-indicator.js"></script>
@@ -485,35 +503,3 @@
 </body>
 
 </html>
-<!-- GitHub Device Auth Modal -->
-<div id="device-auth-modal" class="modal hidden">
-  <div class="modal-overlay"></div>
-  <div class="modal-content" style="max-width: 500px; text-align: center;">
-    <div class="modal-header">
-      <h2>GitHub Sign In</h2>
-      <button class="close-modal" id="close-auth-modal">&times;</button>
-    </div>
-    <div class="modal-body">
-      <p style="margin-bottom: 20px;">To sign in, copy the code below and enter it on the GitHub page that opens.</p>
-
-      <div style="background: #f1f2f3; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-        <h1 id="device-user-code"
-          style="letter-spacing: 2px; font-family: monospace; color: var(--primary-color); margin: 0;">Loading...</h1>
-      </div>
-
-      <button id="auth-copy-btn" class="btn btn-secondary" style="margin-bottom: 20px;">
-        <span class="icon">&#128203;</span> Copy Code
-      </button>
-
-      <div style="margin-bottom: 20px;">
-        <button id="auth-open-browser-btn" class="btn btn-primary btn-large">
-          Open GitHub Login Page
-        </button>
-      </div>
-
-      <div id="auth-poll-status" style="color: var(--text-muted); font-size: 0.9em; min-height: 20px;">
-        Waiting for you to authorize...
-      </div>
-    </div>
-  </div>
-</div>

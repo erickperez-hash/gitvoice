@@ -73,7 +73,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Permissions
   checkMicrophonePermission: () => ipcRenderer.invoke('check-microphone-permission'),
-  requestMicrophonePermission: () => ipcRenderer.invoke('request-microphone-permission')
+  requestMicrophonePermission: () => ipcRenderer.invoke('request-microphone-permission'),
+  encryptString: (plainText) => ipcRenderer.invoke('encrypt-string', plainText),
+  decryptString: (encryptedBase64) => ipcRenderer.invoke('decrypt-string', encryptedBase64)
 });
 
 // Expose clipboard API

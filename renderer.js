@@ -19,6 +19,8 @@ let isLearningMode = true;
 let isPracticeMode = false;
 let isProcessing = false;
 let currentRepo = null;
+let autoModalEnabled = true;
+let showTipsEnabled = true;
 
 // DOM Elements
 const elements = {};
@@ -153,6 +155,12 @@ function bindEvents() {
   // Network awareness for Offline Mode
   window.addEventListener('online', updateVoiceModeBasedOnNetwork);
   window.addEventListener('offline', updateVoiceModeBasedOnNetwork);
+
+  // Practice History
+  document.getElementById('practice-history-btn')?.addEventListener('click', openPracticeHistory);
+  document.getElementById('close-practice-history')?.addEventListener('click', closePracticeHistory);
+  document.getElementById('close-history-modal')?.addEventListener('click', closePracticeHistory);
+  document.getElementById('clear-practice-history')?.addEventListener('click', clearPracticeHistory);
 }
 
 function updateVoiceModeBasedOnNetwork() {
@@ -649,12 +657,12 @@ async function executeCommand(intent) {
   progressIndicator.setExecuting();
 
   // Show learning modal
-  if (isLearningMode) {
+  if (isLearningMode && autoModalEnabled) {
     const commandData = explainer.explainCommand(intent.command);
     commandModal.show({
       ...commandData,
       description: `Executing: ${intent.description}`,
-      tip: explainer.getTipOfTheDay()
+      tip: showTipsEnabled ? explainer.getTipOfTheDay() : null
     });
   }
 
@@ -868,6 +876,8 @@ function saveSettings() {
   // Apply settings
   narrationService.setVerbosity(verbosity);
   sttService.setUseLocalModel(voiceMode === 'offline');
+  autoModalEnabled = autoModal;
+  showTipsEnabled = showTips;
 
   // Save to localStorage
   localStorage.setItem('gitvoice-settings', JSON.stringify({
@@ -933,7 +943,20 @@ function loadSettings() {
         const voiceModeSelect = document.getElementById('voice-mode');
         if (voiceModeSelect) {
           voiceModeSelect.value = settings.voiceMode;
+          sttService.setUseLocalModel(settings.voiceMode === 'offline');
         }
+      }
+
+      if (settings.autoModal !== undefined) {
+        autoModalEnabled = settings.autoModal;
+        const autoModalCheck = document.getElementById('auto-modal');
+        if (autoModalCheck) autoModalCheck.checked = settings.autoModal;
+      }
+
+      if (settings.showTips !== undefined) {
+        showTipsEnabled = settings.showTips;
+        const showTipsCheck = document.getElementById('show-tips');
+        if (showTipsCheck) showTipsCheck.checked = settings.showTips;
       }
     }
 
@@ -1472,6 +1495,56 @@ async function startModelDownload(modelType) {
   }
 }
 
+
+// ============================================
+// Practice History
+// ============================================
+
+function openPracticeHistory() {
+  const modal = document.getElementById('practice-history-modal');
+  if (modal) {
+    renderPracticeHistory();
+    modal.classList.remove('hidden');
+  }
+}
+
+function closePracticeHistory() {
+  const modal = document.getElementById('practice-history-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function clearPracticeHistory() {
+  if (confirm('Are you sure you want to clear your practice history?')) {
+    practiceMode.clearHistory();
+    renderPracticeHistory();
+    narrationService.speak('Practice history cleared.');
+  }
+}
+
+function renderPracticeHistory() {
+  const listEl = document.getElementById('practice-history-list');
+  if (!listEl) return;
+
+  const history = practiceMode.getHistory();
+
+  if (history.length === 0) {
+    listEl.innerHTML = '<p class="placeholder">No practice history yet. Enable Practice Mode and try some commands!</p>';
+    return;
+  }
+
+  listEl.innerHTML = history.reverse().map(item => `
+    <div class="history-item">
+      <div class="history-header">
+        <span class="history-command">${item.command}</span>
+        <span class="history-time">${new Date(item.timestamp).toLocaleTimeString()}</span>
+      </div>
+      <div class="history-body">
+        <div class="history-description">${item.simulation.description}</div>
+        <div class="history-would-do"><strong>Would do:</strong> ${item.simulation.wouldDo}</div>
+      </div>
+    </div>
+  `).join('');
+}
 
 // ============================================
 // Permissions & Connectivity
