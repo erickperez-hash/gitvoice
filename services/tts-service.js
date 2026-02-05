@@ -2,163 +2,140 @@
 
 class TTSService {
   constructor() {
-    this.synth = window.speechSynthesis;
     this.voice = null;
     this.rate = 1.0;
     this.pitch = 1.0;
     this.volume = 1.0;
     this.queue = [];
     this.speaking = false;
-    this.useLocalModel = false; // Whether to use local model instead of Web Speech
+    this.useLocalModel = false; // Whether to use local model
+    this.useAzureSpeech = true; // Default to Azure Speech
+    this.azureConfig = null;
 
     // Callbacks
     this.onStart = null;
     this.onEnd = null;
     this.onError = null;
 
-    this.initialize();
+    this.checkAzureConfig();
   }
 
-  initialize() {
-    // Wait for voices to load
-    if (this.synth.onvoiceschanged !== undefined) {
-      this.synth.onvoiceschanged = () => {
-        this.selectDefaultVoice();
-      };
-    }
-
-    // Try to select voice immediately
-    setTimeout(() => this.selectDefaultVoice(), 100);
-  }
-
-  selectDefaultVoice() {
-    const voices = this.synth.getVoices();
-    const isOnline = navigator.onLine;
-
-    // Prefer natural-sounding voices, but avoid cloud voices if offline
-    let preferredVoices = [
-      'Samantha', // macOS (Local)
-      'Alex', // macOS (Local)
-      'Microsoft Zira', // Windows (Local)
-      'Microsoft David', // Windows (Local)
-    ];
-
-    if (isOnline) {
-      preferredVoices.unshift('Google US English'); // Chrome Cloud Voice (Best when online)
-    }
-
-    for (const preferred of preferredVoices) {
-      const voice = voices.find(v =>
-        v.name.includes(preferred) && v.lang.startsWith('en')
-      );
-      if (voice) {
-        this.voice = voice;
-        console.log(`[TTS] Selected voice: ${voice.name} (${isOnline ? 'Online' : 'Offline'} mode)`);
-        return;
+  async checkAzureConfig() {
+    try {
+      const config = await window.electronAPI.azureGetConfig();
+      if (config.configured) {
+        this.azureConfig = config;
+        this.useAzureSpeech = true;
+        console.log('[TTS] Azure Speech configured and enabled');
+      } else {
+        this.useAzureSpeech = false;
+        console.warn('[TTS] Azure Speech not configured. Will use Local Model if available.');
       }
-    }
-
-    // Fallback to first English voice
-    const englishVoice = voices.find(v => v.lang.startsWith('en'));
-    if (englishVoice) {
-      this.voice = englishVoice;
-    } else if (voices.length > 0) {
-      this.voice = voices[0];
+    } catch (error) {
+      console.error('[TTS] Failed to check Azure config:', error);
+      this.useAzureSpeech = false;
     }
   }
+
 
   async speak(text, priority = false) {
-    return new Promise((resolve, reject) => {
-      if (!this.synth) {
-        reject(new Error('Speech synthesis not available'));
-        return;
-      }
+    if (priority) {
+      // Cancel current speech and clear queue
+      this.stop();
+      this.queue = [];
+    }
 
-      if (priority) {
-        // Cancel current speech and clear queue
-        this.stop();
-        this.queue = [];
-      }
-
-      const utterance = new SpeechSynthesisUtterance(text);
-
-      if (this.voice) {
-        utterance.voice = this.voice;
-      }
-
-      utterance.rate = this.rate;
-      utterance.pitch = this.pitch;
-      utterance.volume = this.volume;
-
-      utterance.onstart = () => {
-        this.speaking = true;
+    if (this.useAzureSpeech) {
+      try {
         if (this.onStart) this.onStart(text);
-      };
+        const result = await window.electronAPI.azureSpeak({
+          text,
+          voiceName: "en-US-AndrewNeural" // Default neural voice
+        });
+        if (result.success && result.audioData) {
+          await this.playAudioData(result.audioData);
+          if (this.onEnd) this.onEnd(text);
+          return;
+        } else {
+          throw new Error(result.error || 'Failed to get audio data from Azure');
+        }
+      } catch (error) {
+        console.error('[TTS] Azure Speak failed:', error);
+      }
+    }
 
-      utterance.onend = () => {
-        this.speaking = false;
-        if (this.onEnd) this.onEnd(text);
-        this.processQueue();
-        resolve();
-      };
+    if (this.useLocalModel) {
+      try {
+        if (this.onStart) this.onStart(text);
+        const status = await window.electronAPI.checkModelStatus('tts');
+        if (!status.downloaded) {
+          throw new Error('Local TTS model not found');
+        }
 
-      utterance.onerror = (event) => {
-        this.speaking = false;
-        if (this.onError) this.onError(event.error);
-        reject(new Error(`Speech error: ${event.error}`));
-      };
+        const result = await window.electronAPI.ttsLocal({
+          text,
+          modelPath: status.path
+        });
 
-      if (this.speaking && !priority) {
-        // Add to queue
-        this.queue.push({ utterance, resolve, reject });
-      } else {
-        // Speak immediately
-        this.synth.speak(utterance);
+        if (result.success && result.audioData) {
+          await this.playAudioData(result.audioData);
+          if (this.onEnd) this.onEnd(text);
+          return;
+        } else {
+          throw new Error(result.error || 'Local TTS failed');
+        }
+      } catch (error) {
+        console.error('[TTS] Local TTS failed:', error);
+      }
+    }
+
+    // throw new Error('TTS service not available (Azure credentials missing and Local Model disabled)');
+    console.warn('[TTS] Speech failed, no services available or both failed.');
+  }
+
+  async playAudioData(audioDataArray) {
+    return new Promise(async (resolve, reject) => {
+      try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        // Convert array of bytes (Int16 PCM) to Float32 for Web Audio
+        const uint8Array = new Uint8Array(audioDataArray);
+        const int16Array = new Int16Array(uint8Array.buffer);
+
+        const float32Array = new Float32Array(int16Array.length);
+        for (let i = 0; i < int16Array.length; i++) {
+          float32Array[i] = int16Array[i] / 32768.0;
+        }
+
+        const audioBuffer = audioCtx.createBuffer(1, float32Array.length, 16000);
+        audioBuffer.getChannelData(0).set(float32Array);
+
+        const source = audioCtx.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(audioCtx.destination);
+        source.onended = () => {
+          audioCtx.close();
+          resolve();
+        };
+        source.start();
+        this.currentSource = source; // Keep track to allow stopping
+      } catch (error) {
+        reject(error);
       }
     });
   }
 
-  processQueue() {
-    if (this.queue.length === 0 || this.speaking) return;
-
-    const { utterance, resolve, reject } = this.queue.shift();
-
-    utterance.onend = () => {
-      this.speaking = false;
-      if (this.onEnd) this.onEnd(utterance.text);
-      resolve();
-      this.processQueue();
-    };
-
-    utterance.onerror = (event) => {
-      this.speaking = false;
-      if (this.onError) this.onError(event.error);
-      reject(new Error(`Speech error: ${event.error}`));
-      this.processQueue();
-    };
-
-    this.synth.speak(utterance);
-    this.speaking = true;
-  }
-
   stop() {
-    if (this.synth) {
-      this.synth.cancel();
-    }
     this.speaking = false;
     this.queue = [];
   }
 
   pause() {
-    if (this.synth) {
-      this.synth.pause();
-    }
+    console.log('[TTS] Pause not supported in Azure direct playback yet');
   }
 
   resume() {
-    if (this.synth) {
-      this.synth.resume();
-    }
+    console.log('[TTS] Resume not supported in Azure direct playback yet');
   }
 
   setRate(rate) {
@@ -174,23 +151,19 @@ class TTSService {
   }
 
   setVoice(voiceName) {
-    const voices = this.synth.getVoices();
-    const voice = voices.find(v => v.name === voiceName);
-    if (voice) {
-      this.voice = voice;
-    }
+    console.log('[TTS] Setting voice to:', voiceName);
   }
 
   getVoices() {
-    return this.synth.getVoices().filter(v => v.lang.startsWith('en'));
+    return []; // No longer using browser voices
   }
 
   getAllVoices() {
-    return this.synth.getVoices();
+    return [];
   }
 
   isSpeaking() {
-    return this.speaking || (this.synth && this.synth.speaking);
+    return this.speaking;
   }
 
   setUseLocalModel(enabled) {
@@ -198,16 +171,15 @@ class TTSService {
   }
 
   isAvailable() {
-    return 'speechSynthesis' in window;
+    return true;
   }
 
   getStatus() {
     return {
       speaking: this.speaking,
-      paused: this.synth?.paused,
-      pending: this.synth?.pending,
       queueLength: this.queue.length,
-      currentVoice: this.voice?.name,
+      useAzureSpeech: this.useAzureSpeech,
+      useLocalModel: this.useLocalModel,
       rate: this.rate
     };
   }

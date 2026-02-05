@@ -70,6 +70,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   checkModelStatus: (modelType) => ipcRenderer.invoke('check-model-status', modelType),
   downloadModel: (data) => ipcRenderer.invoke('download-model', data),
   transcribeLocal: (data) => ipcRenderer.invoke('transcribe-local', data),
+  ttsLocal: (data) => ipcRenderer.invoke('tts-local', data),
   onModelDownloadProgress: (callback) => {
     const subscription = (event, data) => callback(data);
     ipcRenderer.on('model-download-progress', subscription);
@@ -80,7 +81,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   checkMicrophonePermission: () => ipcRenderer.invoke('check-microphone-permission'),
   requestMicrophonePermission: () => ipcRenderer.invoke('request-microphone-permission'),
   encryptString: (plainText) => ipcRenderer.invoke('encrypt-string', plainText),
-  decryptString: (encryptedBase64) => ipcRenderer.invoke('decrypt-string', encryptedBase64)
+  decryptString: (encryptedBase64) => ipcRenderer.invoke('decrypt-string', encryptedBase64),
+
+  // Azure Speech Services
+  azureGetConfig: () => ipcRenderer.invoke('azure-get-config'),
+  azureTranscribe: (data) => ipcRenderer.invoke('azure-stt-transcribe', data),
+  azureSpeak: (data) => ipcRenderer.invoke('azure-tts-speak', data)
 });
 
 // Expose clipboard API

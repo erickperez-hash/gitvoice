@@ -38,20 +38,45 @@ const elements = {};
 
 // Initialize app
 document.addEventListener('DOMContentLoaded', async () => {
+  console.log('[Renderer] DOMContentLoaded: Starting initialization...');
+
   initializeElements();
+  console.log('[Renderer] Elements initialized.');
+
   initializeServices();
+  console.log('[Renderer] Services initialized.');
+
   bindEvents();
+  console.log('[Renderer] Events bound.');
 
   // Initialize sub-systems
   initializePracticeMode();
   initializeLearningOverlay();
+  console.log('[Renderer] Sub-systems initialized.');
+
+  // Load settings after services are ready
+  loadSettings();
+  console.log('[Renderer] Settings loaded.');
 
   await initializePermissions();
+  console.log('[Renderer] Permissions checked.');
+
   await checkInitialState();
+  console.log('[Renderer] Initial state checked.');
+
   await initializeCredentials();
+  console.log('[Renderer] Credentials initialized.');
+
   await initializeHotkey();
+  console.log('[Renderer] Hotkey initialized.');
+
   await initializeMicrophone();
+  console.log('[Renderer] Microphone initialized.');
+
   await initializeModels();
+  console.log('[Renderer] Models initialized.');
+
+  console.log('[Renderer] Initialization complete.');
 });
 
 function initializeElements() {
@@ -506,65 +531,34 @@ async function startVoiceCommand() {
   try {
     let transcript = '';
 
-    if (sttService.useLocalModel) {
-      console.log('[Voice] Using Local Model (Offline Mode)');
-      // Step 1: Listening (handled by VAD)
-      progressIndicator.setListening();
-      await narrationService.announceStep('listening');
-      elements.transcript.innerHTML = '<span class="placeholder">Listening...</span>';
-
-      console.log('[Voice] Waiting for VAD recording...');
-      const audioBlob = await audioService.recordWithVAD();
-      console.log('[Voice] Audio recording captured, size:', audioBlob.size);
-
-      // Step 2: Understanding (Local Transcription)
-      progressIndicator.setUnderstanding();
-      // Use non-blocking speech so transcription can start immediately
-      narrationService.announceStep('processing', {}, false);
-      elements.transcript.innerHTML = '<span class="placeholder">Transcribing...</span>';
-
-      console.log('[Voice] Calling local transcription service...');
-      const result = await sttService.transcribe(audioBlob);
-      console.log('[Voice] Transcription result:', result.text);
-      transcript = result.text;
-    } else {
-      console.log('[Voice] Using Web Speech API (Online Mode)');
-      // Step 1: Listening (Web Speech API)
-      progressIndicator.setListening();
-      await narrationService.announceStep('listening');
-      elements.transcript.innerHTML = '<span class="placeholder">Listening...</span>';
-
-      // Start speech recognition
-      transcript = await new Promise((resolve, reject) => {
-        let finalTranscript = '';
-
-        sttService.onResult = (result) => {
-          elements.transcript.textContent = result.interim || result.final;
-          if (result.isFinal && result.final) {
-            finalTranscript = result.final;
-          }
-        };
-
-        sttService.onEnd = () => {
-          if (finalTranscript) {
-            resolve(finalTranscript);
-          } else {
-            reject(new Error('No speech detected'));
-          }
-        };
-
-        sttService.onError = (error) => {
-          reject(new Error(`Speech recognition error: ${error}`));
-        };
-
-        sttService.start();
-
-        // Timeout after 15 seconds
-        setTimeout(() => {
-          sttService.stop();
-        }, 15000);
-      });
+    if (!(sttService.useLocalModel || sttService.useAzureSpeech)) {
+      throw new Error('No Speech Recognition Service configured (Azure credentials missing and Local Model disabled)');
     }
+
+    if (sttService.useAzureSpeech) {
+      console.log('[Voice] Using Azure Speech Services');
+    } else {
+      console.log('[Voice] Using Local Model (Offline Mode)');
+    }
+    // Step 1: Listening (handled by VAD)
+    progressIndicator.setListening();
+    await narrationService.announceStep('listening');
+    elements.transcript.innerHTML = '<span class="placeholder">Listening...</span>';
+
+    console.log('[Voice] Waiting for VAD recording...');
+    const audioBlob = await audioService.recordWithVAD();
+    console.log('[Voice] Audio recording captured, size:', audioBlob.size);
+
+    // Step 2: Understanding (Transcription)
+    progressIndicator.setUnderstanding();
+    // Use non-blocking speech so transcription can start immediately
+    narrationService.announceStep('processing', {}, false);
+    elements.transcript.innerHTML = '<span class="placeholder">Transcribing...</span>';
+
+    console.log('[Voice] Calling transcription service...');
+    const result = await sttService.transcribe(audioBlob);
+    console.log('[Voice] Transcription result:', result.text);
+    transcript = result.text;
 
     // Step 2: Understanding (Continued for both modes)
     progressIndicator.setUnderstanding();
@@ -956,7 +950,7 @@ function loadSettings() {
 }
 
 // Load settings after services are initialized
-loadSettings();
+// Called within DOMContentLoaded
 
 // ============================================
 // Practice Mode

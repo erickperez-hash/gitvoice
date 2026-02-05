@@ -1,11 +1,15 @@
+console.log('[Electron] Startup: Initializing application (Pre-requirements)...');
 const { app, BrowserWindow, ipcMain, dialog, globalShortcut, shell, systemPreferences, safeStorage } = require('electron');
+require('dotenv').config();
+console.log('[Electron] Startup: Dotenv configured.');
 const path = require('path');
 const fs = require('fs');
+console.log('[Electron] Startup: Core modules loaded.');
+const sdk = require('microsoft-cognitiveservices-speech-sdk');
+console.log('[Electron] Startup: Azure SDK loaded.');
 const dugite = require('dugite');
+console.log('[Electron] Startup: Dugite loaded.');
 const GitProcess = dugite.GitProcess || dugite;
-
-let mainWindow;
-let currentRepoPath = null;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -36,6 +40,13 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  console.log('[Electron] App ready. Initializing subsystems...');
+
+  // Initialize Trampoline after app is ready to ensure safeStorage is available
+  const Trampoline = require('./utils/trampoline');
+  trampoline = new Trampoline();
+  console.log('[Electron] Trampoline initialized.');
+
   createWindow();
 
   app.on('activate', () => {
@@ -590,8 +601,7 @@ ipcMain.handle('set-repo-path', (event, repoPath) => {
 // Credential Management
 // ============================================
 
-const Trampoline = require('./utils/trampoline');
-const trampoline = new Trampoline();
+// Trampoline is now initialized in app.whenReady()
 
 // Save credential for a service (supports both token and username/password)
 ipcMain.handle('save-credential', async (event, { service, token, username, password, email, authType = 'token' }) => {
@@ -959,6 +969,69 @@ ipcMain.handle('transcribe-local', async (event, { audioData, modelPath }) => {
   }
 });
 
+let ttsPipeline = null;
+
+ipcMain.handle('tts-local', async (event, { text, modelPath }) => {
+  try {
+    console.log(`[Kokoro] Local TTS requested for text: "${text}"`);
+
+    // Use dynamic import for transformers.js (ESM)
+    const transformers = await import('@huggingface/transformers');
+    const pipeline = transformers.pipeline || (transformers.default && transformers.default.pipeline);
+    const env = transformers.env || (transformers.default && transformers.default.env);
+
+    // Configure for STRICT OFFLINE mode
+    env.allowRemoteModels = false;
+    env.localModelPath = modelsDir;
+    env.backends.onnx.wasm.numThreads = 1;
+
+    // Initialize pipeline if not already done
+    if (!ttsPipeline) {
+      console.log(`[Kokoro] Initializing Kokoro TTS engine from: ${modelsDir}`);
+      try {
+        // We look for 'kokoro' model in the modelsDir
+        // Note: The specific model name should match how it's saved in modelsDir
+        ttsPipeline = await pipeline('text-to-speech', 'kokoro', {
+          dtype: 'fp32', // Kokoro usually needs fp32 or fp16
+        });
+        console.log('[Kokoro] Engine ready.');
+      } catch (loadError) {
+        console.error('[Kokoro] Initialization failed:', loadError);
+        return {
+          success: false,
+          error: `Offline TTS model files are incomplete or missing. (Internal: ${loadError.message})`
+        };
+      }
+    }
+
+    // Run synthesis
+    console.log('[Kokoro] Synthesis starting...');
+    const result = await ttsPipeline(text, {
+      voice: 'af_heart', // Default voice for Kokoro in Transformers.js
+    });
+
+    console.log('[Kokoro] Synthesis complete.');
+
+    // Convert result.audio (Float32Array) to Int16 PCM Array for consistency with Azure return
+    const floatData = result.audio;
+    const int16Data = new Int16Array(floatData.length);
+    for (let i = 0; i < floatData.length; i++) {
+      const s = Math.max(-1, Math.min(1, floatData[i]));
+      int16Data[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+    }
+
+    const audioDataArray = Array.from(new Uint8Array(int16Data.buffer));
+
+    return {
+      success: true,
+      audioData: audioDataArray
+    };
+  } catch (error) {
+    console.error('[Kokoro] General error:', error);
+    return { success: false, error: `Local TTS Error: ${error.message}` };
+  }
+});
+
 // ============================================
 // Get remote URL from repository
 // ============================================
@@ -996,6 +1069,113 @@ ipcMain.handle('github-auth-poll', async (event, { deviceCode, interval }) => {
     const token = await githubAuthService.pollForToken(deviceCode, interval);
     return { success: true, token };
   } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// ============================================
+// Azure Speech Services
+// ============================================
+
+function getAzureConfig() {
+  const key = process.env.AZURE_SPEECH_KEY;
+  const region = process.env.AZURE_SPEECH_REGION;
+
+  if (!key || !region) {
+    return null;
+  }
+
+  return { key, region };
+}
+
+ipcMain.handle('azure-get-config', async () => {
+  const config = getAzureConfig();
+  return {
+    configured: !!config,
+    region: config?.region
+  };
+});
+
+ipcMain.handle('azure-stt-transcribe', async (event, { audioData, sampleRate = 16000 }) => {
+  const config = getAzureConfig();
+  if (!config) {
+    return { success: false, error: 'Azure Speech credentials not configured' };
+  }
+
+  try {
+    const speechConfig = sdk.SpeechConfig.fromSubscription(config.key, config.region);
+    speechConfig.speechRecognitionLanguage = "en-US";
+
+    // Audio format: Mono, 16-bit PCM, 16000Hz
+    const audioFormat = sdk.AudioStreamFormat.getWaveFormatPCM(sampleRate, 16, 1);
+    const pushStream = sdk.AudioInputStream.createPushStream(audioFormat);
+
+    const audioConfig = sdk.AudioConfig.fromStreamInput(pushStream);
+    const recognizer = new sdk.SpeechRecognizer(speechConfig, audioConfig);
+
+    // Convert array of 16-bit integers to a proper Buffer
+    const int16Array = Int16Array.from(audioData);
+    const buffer = Buffer.from(int16Array.buffer);
+
+    pushStream.write(buffer);
+    pushStream.close();
+
+    return new Promise((resolve) => {
+      recognizer.recognizeOnceAsync(result => {
+        recognizer.close();
+        if (result.reason === sdk.ResultReason.RecognizedSpeech) {
+          resolve({ success: true, text: result.text });
+        } else if (result.reason === sdk.ResultReason.NoMatch) {
+          resolve({ success: true, text: '', noMatch: true });
+        } else {
+          resolve({ success: false, error: `Speech recognition failed: ${result.errorDetails}` });
+        }
+      }, err => {
+        recognizer.close();
+        resolve({ success: false, error: err.message });
+      });
+    });
+  } catch (error) {
+    console.error('[Azure] STT Error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('azure-tts-speak', async (event, { text, voiceName = "en-US-AndrewNeural" }) => {
+  const config = getAzureConfig();
+  if (!config) {
+    return { success: false, error: 'Azure Speech credentials not configured' };
+  }
+
+  try {
+    const speechConfig = sdk.SpeechConfig.fromSubscription(config.key, config.region);
+    speechConfig.speechSynthesisVoiceName = voiceName;
+    // Set output format to 16khz 16bit mono PCM for efficiency
+    speechConfig.speechSynthesisOutputFormat = sdk.SpeechSynthesisOutputFormat.Raw16Khz16BitMonoPcm;
+
+    // Use PullAudioOutputStream to capture the synthesized audio
+    const pullStream = sdk.AudioOutputStream.createPullStream();
+    const audioConfig = sdk.AudioConfig.fromStreamOutput(pullStream);
+    const synthesizer = new sdk.SpeechSynthesizer(speechConfig, audioConfig);
+
+    return new Promise((resolve) => {
+      synthesizer.speakTextAsync(text, result => {
+        synthesizer.close();
+        if (result.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
+          // Convert audio data to Array for IPC
+          const audioBuffer = result.audioData;
+          const audioDataArray = Array.from(new Uint8Array(audioBuffer));
+          resolve({ success: true, audioData: audioDataArray });
+        } else {
+          resolve({ success: false, error: `Synthesis failed: ${result.errorDetails}` });
+        }
+      }, err => {
+        synthesizer.close();
+        resolve({ success: false, error: err.message });
+      });
+    });
+  } catch (error) {
+    console.error('[Azure] TTS Error:', error);
     return { success: false, error: error.message };
   }
 });
