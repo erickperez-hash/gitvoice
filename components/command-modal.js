@@ -78,9 +78,15 @@ class CommandModal {
       this.renderCommandBreakdown(commandData.breakdown);
     }
 
-    // Set learning tip
-    if (this.elements.learningTip && commandData.tip) {
-      this.elements.learningTip.textContent = commandData.tip;
+    // Set learning tip (only if provided and not null)
+    if (this.elements.learningTip) {
+      if (commandData.tip) {
+        this.elements.learningTip.textContent = commandData.tip;
+        this.elements.learningTip.style.display = 'block';
+      } else {
+        this.elements.learningTip.textContent = '';
+        this.elements.learningTip.style.display = 'none';
+      }
     }
 
     // Clear output

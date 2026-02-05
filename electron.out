@@ -1,0 +1,20 @@
+
+> gitvoice@1.0.0 start
+> node launcher.js
+
+Launching Electron...
+Binary: /Users/erp/Documents/gitvoice/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron
+App dir: /Users/erp/Documents/gitvoice
+[33739:0204/200341.916968:WARNING:CONSOLE(2)] "%cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security
+  Policy set or a policy with "unsafe-eval" enabled. This exposes users of
+  this app to unnecessary security risks.
+
+For more information and help, consult
+https://electronjs.org/docs/tutorial/security.
+This warning will not show up
+once the app is packaged.", source: node:electron/js2c/sandbox_bundle (2)
+[33739:0204/200410.146119:INFO:CONSOLE(37)] "Initialized UI elements: [object Object]", source: file:///Users/erp/Documents/gitvoice/controllers/ui-controller.js (37)
+[33739:0204/200410.146180:INFO:CONSOLE(364)] "Checking permissions...", source: file:///Users/erp/Documents/gitvoice/controllers/settings-manager.js (364)
+[33739:0204/200410.155320:INFO:CONSOLE(56)] "[TTS] Selected voice: Samantha (Online mode)", source: file:///Users/erp/Documents/gitvoice/services/tts-service.js (56)
+[33739:0204/200410.155487:INFO:CONSOLE(369)] "Microphone status: granted", source: file:///Users/erp/Documents/gitvoice/controllers/settings-manager.js (369)
+[33739:0204/200416.662342:INFO:CONSOLE(118)] "[Network] Internet available. Preferred Online Mode.", source: file:///Users/erp/Documents/gitvoice/controllers/settings-manager.js (118)

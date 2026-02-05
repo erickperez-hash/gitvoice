@@ -6,6 +6,7 @@ class AudioService {
     this.mediaRecorder = null;
     this.audioContext = null;
     this.analyser = null;
+    this.sourceNode = null; // Track source node for proper cleanup
     this.isRecording = false;
     this.isListening = false;
 
@@ -52,8 +53,8 @@ class AudioService {
       this.analyser = this.audioContext.createAnalyser();
       this.analyser.fftSize = 2048;
 
-      const source = this.audioContext.createMediaStreamSource(this.stream);
-      source.connect(this.analyser);
+      this.sourceNode = this.audioContext.createMediaStreamSource(this.stream);
+      this.sourceNode.connect(this.analyser);
 
       return true;
     } catch (error) {
@@ -65,12 +66,29 @@ class AudioService {
   // ... (startListening ...)
 
   cleanup() {
+    // Disconnect source node before closing context to prevent memory leaks
+    if (this.sourceNode) {
+      try {
+        this.sourceNode.disconnect();
+      } catch (e) {
+        // Ignore disconnect errors if already disconnected
+      }
+      this.sourceNode = null;
+    }
+    if (this.analyser) {
+      try {
+        this.analyser.disconnect();
+      } catch (e) {
+        // Ignore disconnect errors
+      }
+      this.analyser = null;
+    }
     if (this.stream) {
       this.stream.getTracks().forEach(track => track.stop());
       this.stream = null;
     }
     if (this.audioContext) {
-      this.audioContext.close();
+      this.audioContext.close().catch(() => {});
       this.audioContext = null;
     }
     this.isListening = false;
@@ -269,21 +287,21 @@ class AudioService {
         }
       };
 
-      // Timeout after 30 seconds
+      // Timeout after 12 seconds to keep blob size under 150KB
       setTimeout(async () => {
         if (this.isListening) {
-          console.log('[Audio] Recording timeout reached');
+          console.log('[Audio] Recording timeout reached (12s max)');
+          this.stopListening(); // Stop listening FIRST to prevent new recordings
 
           if (this.isRecording) {
-            console.log('[Audio] Timeout occurred during active recording - forcing stop and processing');
+            console.log('[Audio] Timeout during active recording - forcing stop and processing');
             await this.stopRecording();
             // onSpeechEnd will be called by stopRecording().then(...) in monitorVAD
           } else {
-            this.stopListening();
-            reject(new Error('No speech detected within 30 seconds'));
+            reject(new Error('No speech detected within 12 seconds'));
           }
         }
-      }, 30000);
+      }, 12000);
     });
   }
 
@@ -322,6 +340,16 @@ class AudioService {
   }
 
   async setDevice(deviceId) {
+    // Disconnect old source node first
+    if (this.sourceNode) {
+      try {
+        this.sourceNode.disconnect();
+      } catch (e) {
+        // Ignore
+      }
+      this.sourceNode = null;
+    }
+
     // Stop current stream
     if (this.stream) {
       this.stream.getTracks().forEach(track => track.stop());
@@ -339,21 +367,14 @@ class AudioService {
 
     // Reconnect to analyser
     if (this.audioContext && this.analyser) {
-      const source = this.audioContext.createMediaStreamSource(this.stream);
-      source.connect(this.analyser);
+      this.sourceNode = this.audioContext.createMediaStreamSource(this.stream);
+      this.sourceNode.connect(this.analyser);
     }
   }
 
   destroy() {
     this.stopListening();
-
-    if (this.stream) {
-      this.stream.getTracks().forEach(track => track.stop());
-    }
-
-    if (this.audioContext) {
-      this.audioContext.close();
-    }
+    this.cleanup(); // Use cleanup for proper resource release
   }
 }
 

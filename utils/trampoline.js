@@ -1,9 +1,20 @@
 // Trampoline - Git credential helper and authentication management
 // Handles Git authentication via environment variables and credential storage
+// Uses Electron's safeStorage for encrypted credential storage
 
 const path = require('path');
 const fs = require('fs');
-const { spawn } = require('child_process');
+const crypto = require('crypto');
+
+// Lazy-load electron to avoid initialization issues
+let _safeStorage = null;
+function getSafeStorage() {
+  if (!_safeStorage) {
+    const { safeStorage } = require('electron');
+    _safeStorage = safeStorage;
+  }
+  return _safeStorage;
+}
 
 class Trampoline {
   constructor() {
@@ -12,8 +23,33 @@ class Trampoline {
       gitlab: null,
       bitbucket: null
     };
-    this.credentialFile = path.join(process.env.HOME || process.env.USERPROFILE, '.gitvoice', 'credentials.json');
+    this.credentialFile = path.join(process.env.HOME || process.env.USERPROFILE, '.gitvoice', 'credentials.enc');
+    this.metadataFile = path.join(process.env.HOME || process.env.USERPROFILE, '.gitvoice', 'credentials.meta.json');
     this.loadCredentials();
+  }
+
+  // Check if encryption is available
+  isEncryptionAvailable() {
+    return getSafeStorage().isEncryptionAvailable();
+  }
+
+  // Encrypt sensitive data
+  encryptToken(token) {
+    if (this.isEncryptionAvailable()) {
+      return getSafeStorage().encryptString(token);
+    }
+    // Fallback: use base64 encoding (less secure but better than plaintext)
+    console.warn('[Security] safeStorage not available, using fallback encoding');
+    return Buffer.from(token, 'utf8');
+  }
+
+  // Decrypt sensitive data
+  decryptToken(encryptedBuffer) {
+    if (this.isEncryptionAvailable()) {
+      return getSafeStorage().decryptString(encryptedBuffer);
+    }
+    // Fallback: decode base64
+    return encryptedBuffer.toString('utf8');
   }
 
   // Load saved credentials from disk
@@ -21,31 +57,86 @@ class Trampoline {
     try {
       const dir = path.dirname(this.credentialFile);
       if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
+        fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
       }
 
-      if (fs.existsSync(this.credentialFile)) {
-        const data = fs.readFileSync(this.credentialFile, 'utf8');
-        const saved = JSON.parse(data);
-        this.credentials = { ...this.credentials, ...saved };
+      // Load metadata (non-sensitive info like username, savedAt)
+      if (fs.existsSync(this.metadataFile)) {
+        const metaData = fs.readFileSync(this.metadataFile, 'utf8');
+        const metadata = JSON.parse(metaData);
+
+        // Load encrypted tokens
+        if (fs.existsSync(this.credentialFile)) {
+          const encryptedData = fs.readFileSync(this.credentialFile);
+
+          // Parse the encrypted data structure
+          try {
+            const tokenData = JSON.parse(encryptedData.toString('utf8'));
+
+            for (const [service, meta] of Object.entries(metadata)) {
+              if (tokenData[service]) {
+                const encryptedToken = Buffer.from(tokenData[service], 'base64');
+                const decryptedToken = this.decryptToken(encryptedToken);
+
+                this.credentials[service] = {
+                  token: decryptedToken,
+                  username: meta.username || '',
+                  email: meta.email || '',
+                  savedAt: meta.savedAt
+                };
+              }
+            }
+          } catch (e) {
+            console.error('Failed to decrypt credentials:', e.message);
+          }
+        }
       }
     } catch (error) {
       console.error('Failed to load credentials:', error);
     }
   }
 
-  // Save credentials to disk (encrypted in production)
+  // Save credentials to disk (encrypted)
   saveCredentials() {
     try {
       const dir = path.dirname(this.credentialFile);
       if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
+        fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
       }
 
-      // In production, this should use OS keychain
-      fs.writeFileSync(this.credentialFile, JSON.stringify(this.credentials, null, 2), {
-        mode: 0o600 // Read/write for owner only
-      });
+      // Separate sensitive (tokens) from non-sensitive (metadata)
+      const metadata = {};
+      const encryptedTokens = {};
+
+      for (const [service, cred] of Object.entries(this.credentials)) {
+        if (cred && cred.token) {
+          // Encrypt the token
+          const encrypted = this.encryptToken(cred.token);
+          encryptedTokens[service] = encrypted.toString('base64');
+
+          // Store metadata separately (not encrypted)
+          metadata[service] = {
+            username: cred.username || '',
+            email: cred.email || '',
+            savedAt: cred.savedAt
+          };
+        }
+      }
+
+      // Write encrypted tokens
+      fs.writeFileSync(
+        this.credentialFile,
+        JSON.stringify(encryptedTokens),
+        { mode: 0o600 }
+      );
+
+      // Write metadata
+      fs.writeFileSync(
+        this.metadataFile,
+        JSON.stringify(metadata, null, 2),
+        { mode: 0o600 }
+      );
+
     } catch (error) {
       console.error('Failed to save credentials:', error);
     }
@@ -76,7 +167,7 @@ class Trampoline {
   // Remove credential
   removeCredential(service) {
     if (this.credentials[service]) {
-      delete this.credentials[service];
+      this.credentials[service] = null;
       this.saveCredentials();
       return true;
     }
@@ -100,6 +191,7 @@ class Trampoline {
   }
 
   // Create environment variables for Git authentication
+  // Uses GIT_ASKPASS with environment variable instead of temp file
   getGitEnv(remoteUrl) {
     const env = { ...process.env };
 
@@ -108,16 +200,49 @@ class Trampoline {
     const cred = this.credentials[service];
 
     if (cred?.token) {
-      // Use credential helper approach
-      env.GIT_ASKPASS = this.createAskPassScript(cred.token);
+      // Use credential helper via environment variable approach
+      // This avoids writing tokens to temp files
+      env.GIT_ASKPASS = this.getAskPassHelper();
+      env.GITVOICE_TOKEN = cred.token;
+      env.GIT_TERMINAL_PROMPT = '0';
 
-      // For GitHub, can also use token directly in URL
+      // For GitHub, also set the token env var
       if (service === 'github') {
         env.GITHUB_TOKEN = cred.token;
+        env.GH_TOKEN = cred.token;
       }
     }
 
     return env;
+  }
+
+  // Get path to the askpass helper script (created once, reads from env)
+  getAskPassHelper() {
+    const os = require('os');
+    const scriptDir = path.join(os.tmpdir(), 'gitvoice');
+    const isWindows = process.platform === 'win32';
+    const scriptPath = path.join(scriptDir, isWindows ? 'askpass.bat' : 'askpass');
+
+    // Create helper script if it doesn't exist
+    if (!fs.existsSync(scriptPath)) {
+      if (!fs.existsSync(scriptDir)) {
+        fs.mkdirSync(scriptDir, { recursive: true, mode: 0o700 });
+      }
+
+      if (isWindows) {
+        // Windows batch script - reads token from environment
+        const script = `@echo off
+echo %GITVOICE_TOKEN%`;
+        fs.writeFileSync(scriptPath, script, { mode: 0o700 });
+      } else {
+        // Unix shell script - reads token from environment
+        const script = `#!/bin/sh
+echo "$GITVOICE_TOKEN"`;
+        fs.writeFileSync(scriptPath, script, { mode: 0o700 });
+      }
+    }
+
+    return scriptPath;
   }
 
   // Detect which service a remote URL belongs to
@@ -129,25 +254,6 @@ class Trampoline {
     if (lowercaseUrl.includes('gitlab.com')) return 'gitlab';
     if (lowercaseUrl.includes('bitbucket.org')) return 'bitbucket';
     return 'custom';
-  }
-
-  // Create a temporary askpass script for Git
-  createAskPassScript(token) {
-    const os = require('os');
-    const scriptPath = path.join(os.tmpdir(), 'gitvoice-askpass');
-
-    // Create script that echoes the token
-    const isWindows = process.platform === 'win32';
-
-    if (isWindows) {
-      const script = `@echo off\necho ${token}`;
-      fs.writeFileSync(scriptPath + '.bat', script, { mode: 0o700 });
-      return scriptPath + '.bat';
-    } else {
-      const script = `#!/bin/sh\necho "${token}"`;
-      fs.writeFileSync(scriptPath, script, { mode: 0o700 });
-      return scriptPath;
-    }
   }
 
   // Modify URL to include credentials (for HTTPS)
@@ -234,16 +340,15 @@ class Trampoline {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'git-auth-test-'));
 
     try {
-      // Create a temporary environment with GIT_ASKPASS to test credentials
-      const askPassPath = this.createAskPassScript(password);
+      // Use environment variable approach for testing
       const env = {
         ...process.env,
-        GIT_ASKPASS: askPassPath,
+        GIT_ASKPASS: this.getAskPassHelper(),
+        GITVOICE_TOKEN: password,
         GIT_TERMINAL_PROMPT: '0'
       };
 
-      // Test with ls-remote on a common public repo that we can use to verify auth
-      // For service specific validation, we'd need a URL
+      // Test with ls-remote on a common public repo
       let testUrl;
       switch (service) {
         case 'github': testUrl = `https://github.com/${username}/non-existent-repo-for-auth-test.git`; break;
@@ -252,15 +357,7 @@ class Trampoline {
         default: testUrl = 'https://github.com/github/test-repo.git';
       }
 
-      // We expect a 404 or success if credentials are good, but a 401/403 if bad
-      // Note: ls-remote on a non-existent repo with GOOD credentials will give "repository not found"
-      // ls-remote on a repo with BAD credentials will give "Authentication failed"
-
       const result = await GitProcess.exec(['ls-remote', testUrl], tempDir, { env });
-
-      // Clean up temp script
-      if (fs.existsSync(askPassPath)) fs.unlinkSync(askPassPath);
-      if (fs.existsSync(askPassPath + '.bat')) fs.unlinkSync(askPassPath + '.bat');
 
       const output = (result.stdout + result.stderr).toLowerCase();
 
@@ -335,7 +432,6 @@ class Trampoline {
 
   // Get SSH key fingerprint
   getKeyFingerprint(pubKey) {
-    const crypto = require('crypto');
     const parts = pubKey.split(' ');
     if (parts.length >= 2) {
       const keyData = Buffer.from(parts[1], 'base64');

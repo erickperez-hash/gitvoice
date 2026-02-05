@@ -1,3 +1,4 @@
+// Now using custom launcher, so regular require should work
 const { app, BrowserWindow, ipcMain, dialog, globalShortcut, shell, systemPreferences } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -16,16 +17,26 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true
+      sandbox: false, // Disable sandbox to allow Web Speech API
+      webSecurity: true,
+      enableRemoteModule: false
     },
     titleBarStyle: 'hiddenInset',
     show: false
   });
 
+  // Clear cache before loading to pick up fixes
+  mainWindow.webContents.session.clearCache();
   mainWindow.loadFile('index.html');
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
+    // Open DevTools to debug
+    mainWindow.webContents.openDevTools();
+  });
+
+  mainWindow.webContents.on('crashed', (event, killed) => {
+    console.log(`Renderer process crashed. Event: ${event}, Killed: ${killed}`);
   });
 
   // Register global shortcut for voice activation
@@ -273,7 +284,7 @@ ipcMain.handle('git-push', async (event, { remote = 'origin', branch } = {}) => 
     // Get remote URL and authentication environment
     const remoteResult = await GitProcess.exec(['remote', 'get-url', remote], currentRepoPath);
     const remoteUrl = remoteResult.stdout.trim();
-    const env = trampoline.getGitEnv(remoteUrl);
+    const env = getTrampoline().getGitEnv(remoteUrl);
 
     const result = await GitProcess.exec(['push', remote, branch], currentRepoPath, { env });
     return {
@@ -302,7 +313,7 @@ ipcMain.handle('git-pull', async (event, { remote = 'origin', branch } = {}) => 
     // Get remote URL and authentication environment
     const remoteResult = await GitProcess.exec(['remote', 'get-url', remote], currentRepoPath);
     const remoteUrl = remoteResult.stdout.trim();
-    const env = trampoline.getGitEnv(remoteUrl);
+    const env = getTrampoline().getGitEnv(remoteUrl);
 
     const result = await GitProcess.exec(['pull', remote, branch], currentRepoPath, { env });
     return {
@@ -388,8 +399,8 @@ ipcMain.handle('git-clone', async (event, { url, targetPath }) => {
     const repoName = path.basename(targetPath);
 
     // Use trampoline to get authenticated URL if needed
-    const authenticatedUrl = trampoline.getAuthenticatedUrl(url);
-    const env = trampoline.getGitEnv(url);
+    const authenticatedUrl = getTrampoline().getAuthenticatedUrl(url);
+    const env = getTrampoline().getGitEnv(url);
 
     const result = await GitProcess.exec(['clone', authenticatedUrl, repoName], parentDir, { env });
 
@@ -476,6 +487,21 @@ ipcMain.handle('open-external', async (event, url) => {
   await shell.openExternal(url);
 });
 
+// Show save dialog for selecting directory
+ipcMain.handle('show-save-dialog', async (event, options = {}) => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory', 'createDirectory'],
+    title: options.title || 'Select Directory',
+    buttonLabel: options.buttonLabel || 'Select',
+    defaultPath: options.defaultPath ? options.defaultPath.replace('~', require('os').homedir()) : require('os').homedir()
+  });
+
+  if (!result.canceled && result.filePaths.length > 0) {
+    return result.filePaths[0];
+  }
+  return null;
+});
+
 // Get current repository path
 ipcMain.handle('get-repo-path', () => {
   return currentRepoPath;
@@ -491,21 +517,29 @@ ipcMain.handle('set-repo-path', (event, repoPath) => {
 // Credential Management
 // ============================================
 
-const Trampoline = require('./utils/trampoline');
-const trampoline = new Trampoline();
+// Lazy-load trampoline to avoid safeStorage initialization before app.whenReady()
+let trampoline = null;
+function getTrampoline() {
+  if (!trampoline) {
+    delete require.cache[require.resolve('./utils/trampoline')];
+    const Trampoline = require('./utils/trampoline');
+    trampoline = new Trampoline();
+  }
+  return trampoline;
+}
 
 // Save credential for a service (supports both token and username/password)
 ipcMain.handle('save-credential', async (event, { service, token, username, password, email, authType = 'token' }) => {
   try {
     if (authType === 'token') {
       // Validate token first
-      const validation = await trampoline.validateToken(service, token);
+      const validation = await getTrampoline().validateToken(service, token);
       if (!validation.valid) {
         return { success: false, error: validation.error || 'Invalid token' };
       }
 
       // Save token credential
-      trampoline.setCredential(service, {
+      getTrampoline().setCredential(service, {
         authType: 'token',
         token,
         username: validation.username || username,
@@ -526,7 +560,7 @@ ipcMain.handle('save-credential', async (event, { service, token, username, pass
 
       // Validate username/password by testing with a simple Git command
       // We pass 'password' as the token/password for validation
-      const validation = await trampoline.validateUsernamePassword(service, username, password);
+      const validation = await getTrampoline().validateUsernamePassword(service, username, password);
       if (!validation.valid) {
         return { success: false, error: validation.error || 'Invalid credentials' };
       }
@@ -534,7 +568,7 @@ ipcMain.handle('save-credential', async (event, { service, token, username, pass
       // Save username/password credential
       // IMPORTANT: For GitHub, we treat the "password" (PAT) as a token 
       // so trampoline will actually use it for authentication.
-      trampoline.setCredential(service, {
+      getTrampoline().setCredential(service, {
         authType: 'password', // Keep track it was entered as password
         token: password,      // But save as token so it works with git
         username,
@@ -554,7 +588,7 @@ ipcMain.handle('save-credential', async (event, { service, token, username, pass
 
 // Get credential for a service
 ipcMain.handle('get-credential', (event, service) => {
-  const cred = trampoline.getCredential(service);
+  const cred = getTrampoline().getCredential(service);
   if (cred) {
     return {
       success: true,
@@ -569,33 +603,33 @@ ipcMain.handle('get-credential', (event, service) => {
 
 // Remove credential
 ipcMain.handle('remove-credential', (event, service) => {
-  const removed = trampoline.removeCredential(service);
+  const removed = getTrampoline().removeCredential(service);
   return { success: removed };
 });
 
 // Get all configured services
 ipcMain.handle('get-configured-services', () => {
-  return trampoline.getConfiguredServices();
+  return getTrampoline().getConfiguredServices();
 });
 
 // Test connection to remote
 ipcMain.handle('test-connection', async (event, remoteUrl) => {
-  return await trampoline.testConnection(remoteUrl);
+  return await getTrampoline().testConnection(remoteUrl);
 });
 
 // Get Git user config
 ipcMain.handle('get-git-user', async () => {
-  return await trampoline.getGitUser();
+  return await getTrampoline().getGitUser();
 });
 
 // Set Git user config
 ipcMain.handle('set-git-user', async (event, { name, email }) => {
-  return await trampoline.configureGitUser(name, email);
+  return await getTrampoline().configureGitUser(name, email);
 });
 
 // Check SSH keys
 ipcMain.handle('check-ssh-keys', async () => {
-  return await trampoline.checkSSHKey();
+  return await getTrampoline().checkSSHKey();
 });
 
 // ============================================
@@ -783,6 +817,13 @@ ipcMain.handle('transcribe-local', async (event, { audioData, modelPath }) => {
   try {
     console.log(`[Whisper] Local transcription requested (Audio length: ${audioData.length} samples)`);
 
+    // Limit audio length to prevent memory issues (max 30 seconds at 16kHz)
+    const maxSamples = 30 * 16000;
+    if (audioData.length > maxSamples) {
+      console.warn(`[Whisper] Audio too long (${audioData.length} samples), truncating to ${maxSamples}`);
+      audioData = audioData.slice(0, maxSamples);
+    }
+
     // Use dynamic import for transformers.js (ESM)
     const { pipeline, env } = await import('@xenova/transformers');
 
@@ -843,6 +884,77 @@ ipcMain.handle('transcribe-local', async (event, { audioData, modelPath }) => {
   } catch (error) {
     console.error('[Whisper] General error:', error);
     return { success: false, error: `Local Transcription Error: ${error.message}` };
+  }
+});
+
+// Handle raw audio blob transcription (avoids renderer crashes from Web Audio API)
+ipcMain.handle('transcribe-local-blob', async (event, { audioData, modelPath }) => {
+  try {
+    console.log(`[Whisper] Blob transcription requested (size: ${audioData.length} bytes)`);
+
+    // Convert Uint8Array back to Buffer
+    const audioBuffer = Buffer.from(audioData);
+
+    // Write to temp file for Transformers.js to process
+    const fs = require('fs');
+    const os = require('os');
+    const tempPath = path.join(os.tmpdir(), `gitvoice-audio-${Date.now()}.webm`);
+
+    fs.writeFileSync(tempPath, audioBuffer);
+    console.log(`[Whisper] Wrote audio to temp file: ${tempPath}`);
+
+    try {
+      // Use dynamic import for transformers.js (ESM)
+      const { pipeline, env } = await import('@xenova/transformers');
+
+      // Configure for STRICT OFFLINE mode
+      env.allowRemoteModels = false;
+      env.localModelPath = modelsDir;
+
+      // Initialize pipeline if not already done
+      if (!transcriptionPipeline) {
+        console.log(`[Whisper] Initializing Whisper Tiny engine from: ${modelsDir}`);
+        transcriptionPipeline = await pipeline('automatic-speech-recognition', 'whisper-tiny.en', {
+          quantized: true,
+        });
+        console.log('[Whisper] Engine ready.');
+      }
+
+      // Run transcription with file path - Transformers.js will decode it
+      console.log('[Whisper] Inference starting (from file)...');
+      const transcriptionPromise = transcriptionPipeline(tempPath);
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Transcription timed out after 45s')), 45000)
+      );
+
+      const result = await Promise.race([transcriptionPromise, timeoutPromise]);
+
+      console.log(`[Whisper] Transcription complete: "${result.text}"`);
+
+      // Clean up temp file
+      try {
+        fs.unlinkSync(tempPath);
+      } catch (e) {
+        // Ignore cleanup errors
+      }
+
+      return {
+        success: true,
+        text: result.text ? result.text.trim() : '',
+        confidence: 1.0
+      };
+    } catch (error) {
+      // Clean up temp file on error
+      try {
+        fs.unlinkSync(tempPath);
+      } catch (e) {
+        // Ignore
+      }
+      throw error;
+    }
+  } catch (error) {
+    console.error('[Whisper] Blob transcription error:', error);
+    return { success: false, error: `Blob transcription failed: ${error.message}` };
   }
 });
 

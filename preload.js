@@ -26,6 +26,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // External links
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
 
+  // Dialogs
+  showSaveDialog: (options) => ipcRenderer.invoke('show-save-dialog', options),
+
   // Voice activation listener
   onVoiceActivate: (callback) => {
     ipcRenderer.on('voice-activate', () => callback());
@@ -65,6 +68,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   checkModelStatus: (modelType) => ipcRenderer.invoke('check-model-status', modelType),
   downloadModel: (data) => ipcRenderer.invoke('download-model', data),
   transcribeLocal: (data) => ipcRenderer.invoke('transcribe-local', data),
+  transcribeLocalBlob: (data) => ipcRenderer.invoke('transcribe-local-blob', data),
   onModelDownloadProgress: (callback) => {
     const subscription = (event, data) => callback(data);
     ipcRenderer.on('model-download-progress', subscription);

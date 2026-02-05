@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'">
+    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://raw.githubusercontent.com https://api.github.com https://github.com https://huggingface.co https://cdn-lfs.huggingface.co https://registry.npmjs.org https://*.google.com wss://*.google.com https://*.googleapis.com; media-src 'self' blob:">
   <title>GitVoice - Learn Git by Voice</title>
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -22,6 +22,9 @@
         <button id="practice-mode-toggle" class="btn btn-secondary" title="Practice without executing">
           <span class="icon">&#127919;</span>
           Practice Mode
+        </button>
+        <button id="practice-history-btn" class="btn btn-icon" title="View practice history">
+          <span class="icon">&#128203;</span>
         </button>
         <button id="learn-mode-toggle" class="btn btn-secondary">
           <span class="icon">&#128218;</span>
@@ -244,8 +247,8 @@
           <div class="setting-item">
             <label for="voice-mode">Voice Command Mode</label>
             <select id="voice-mode">
-              <option value="online">Online (High Accuracy)</option>
-              <option value="offline">Offline (Experimental Simulation)</option>
+              <option value="offline">Offline (Whisper AI - Recommended)</option>
+              <option value="online">Online (Not supported in Electron - Use Offline)</option>
             </select>
           </div>
         </div>
@@ -467,7 +470,63 @@
       </div>
     </div>
   </div>
+
+  <!-- GitHub Device Auth Modal -->
+  <div id="device-auth-modal" class="modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-content" style="max-width: 500px; text-align: center;">
+      <div class="modal-header">
+        <h2>GitHub Sign In</h2>
+        <button class="close-modal" id="close-auth-modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="margin-bottom: 20px;">To sign in, copy the code below and enter it on the GitHub page that opens.</p>
+
+        <div style="background: #f1f2f3; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+          <h1 id="device-user-code"
+            style="letter-spacing: 2px; font-family: monospace; color: var(--primary-color); margin: 0;">Loading...</h1>
+        </div>
+
+        <button id="auth-copy-btn" class="btn btn-secondary" style="margin-bottom: 20px;">
+          <span class="icon">&#128203;</span> Copy Code
+        </button>
+
+        <div style="margin-bottom: 20px;">
+          <button id="auth-open-browser-btn" class="btn btn-primary btn-large">
+            Open GitHub Login Page
+          </button>
+        </div>
+
+        <div id="auth-poll-status" style="color: var(--text-muted); font-size: 0.9em; min-height: 20px;">
+          Waiting for you to authorize...
+        </div>
+      </div>
+    </div>
   </div>
+
+  <!-- Practice History Modal -->
+  <div id="practice-history-modal" class="modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <h2><span class="modal-icon">&#128203;</span> Practice Mode History</h2>
+        <button id="close-practice-history" class="btn btn-icon">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="practice-history-list">
+          <p class="placeholder">No practice commands yet. Enable Practice Mode and try some commands!</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="clear-practice-history" class="btn btn-secondary">Clear History</button>
+        <button id="close-practice-history-footer" class="btn btn-primary">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Constants and Utilities (load first) -->
+  <script src="utils/constants.js"></script>
+  <script src="utils/error-handler.js"></script>
 
   <script src="utils/model-downloader.js"></script>
   <script src="components/command-modal.js"></script>
@@ -481,39 +540,17 @@
   <script src="services/tts-service.js"></script>
   <script src="services/intent-service.js"></script>
   <script src="services/practice-mode.js"></script>
+
+  <!-- Controllers -->
+  <script src="controllers/styles-injector.js"></script>
+  <script src="controllers/ui-controller.js"></script>
+  <script src="controllers/settings-manager.js"></script>
+  <script src="controllers/voice-controller.js"></script>
+  <script src="controllers/credentials-manager.js"></script>
+  <script src="controllers/repository-controller.js"></script>
+
+  <!-- Main App -->
   <script src="renderer.js"></script>
 </body>
 
 </html>
-<!-- GitHub Device Auth Modal -->
-<div id="device-auth-modal" class="modal hidden">
-  <div class="modal-overlay"></div>
-  <div class="modal-content" style="max-width: 500px; text-align: center;">
-    <div class="modal-header">
-      <h2>GitHub Sign In</h2>
-      <button class="close-modal" id="close-auth-modal">&times;</button>
-    </div>
-    <div class="modal-body">
-      <p style="margin-bottom: 20px;">To sign in, copy the code below and enter it on the GitHub page that opens.</p>
-
-      <div style="background: #f1f2f3; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-        <h1 id="device-user-code"
-          style="letter-spacing: 2px; font-family: monospace; color: var(--primary-color); margin: 0;">Loading...</h1>
-      </div>
-
-      <button id="auth-copy-btn" class="btn btn-secondary" style="margin-bottom: 20px;">
-        <span class="icon">&#128203;</span> Copy Code
-      </button>
-
-      <div style="margin-bottom: 20px;">
-        <button id="auth-open-browser-btn" class="btn btn-primary btn-large">
-          Open GitHub Login Page
-        </button>
-      </div>
-
-      <div id="auth-poll-status" style="color: var(--text-muted); font-size: 0.9em; min-height: 20px;">
-        Waiting for you to authorize...
-      </div>
-    </div>
-  </div>
-</div>

@@ -4,8 +4,8 @@ class STTService {
   constructor() {
     this.recognition = null;
     this.isListening = false;
-    this.useWebSpeech = true; // Default to Web Speech API
-    this.useLocalModel = false; // Use downloaded models if available
+    this.useWebSpeech = false; // Web Speech API doesn't work in Electron
+    this.useLocalModel = true; // Default to local Whisper (only working option)
 
     // Callbacks
     this.onResult = null;
@@ -85,6 +85,7 @@ class STTService {
 
     if (this.useLocalModel) {
       // Local model doesn't use the web speech recognition object
+      // It uses audio recording + transcribe() method instead
       this.isListening = true;
       if (this.onStart) this.onStart();
       return;
@@ -97,9 +98,14 @@ class STTService {
     }
 
     try {
+      // Request microphone permission first
+      await navigator.mediaDevices.getUserMedia({ audio: true });
       this.recognition.start();
     } catch (error) {
       console.error('Failed to start recognition:', error);
+      if (error.name === 'NotAllowedError') {
+        throw new Error('Microphone permission denied. Please allow microphone access.');
+      }
       throw error;
     }
   }
@@ -121,34 +127,28 @@ class STTService {
   async transcribe(audioBlob) {
     if (this.useLocalModel) {
       try {
-        // Step 1: Decode audio in renderer (much easier than in Node)
-        const arrayBuffer = await audioBlob.arrayBuffer();
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+        console.log(`[STT] Received audio blob (size: ${audioBlob.size} bytes)`);
 
-        // Step 2: Resample to 16kHz (required by Whisper)
-        const offlineCtx = new OfflineAudioContext(
-          1, // mono
-          Math.ceil(audioBuffer.duration * 16000),
-          16000
-        );
-
-        const source = offlineCtx.createBufferSource();
-        source.buffer = audioBuffer;
-        source.connect(offlineCtx.destination);
-        source.start();
-
-        const resampledBuffer = await offlineCtx.startRendering();
-        const float32Data = resampledBuffer.getChannelData(0);
+        // Limit blob size
+        const maxBlobSize = 200000; // 200KB max to stay safe
+        if (audioBlob.size > maxBlobSize) {
+          throw new Error(`Audio too long (${(audioBlob.size / 1000).toFixed(0)}KB). Please speak for less than 10 seconds.`);
+        }
 
         const status = await window.electronAPI.checkModelStatus('stt');
         if (!status.downloaded) {
-          throw new Error('STT model not found');
+          throw new Error('STT model not found. Please download the Whisper model in Settings.');
         }
 
-        console.log('[STT] Sending resampled audio (16kHz) to main process...');
-        const result = await window.electronAPI.transcribeLocal({
-          audioData: float32Data,
+        // Send RAW audio blob to main process - let Transformers.js decode it
+        // This avoids renderer crashes from Web Audio API's decodeAudioData()
+        console.log('[STT] Sending raw audio blob to main process (Transformers.js will decode)...');
+
+        const arrayBuffer = await audioBlob.arrayBuffer();
+        const uint8Array = Array.from(new Uint8Array(arrayBuffer));
+
+        const result = await window.electronAPI.transcribeLocalBlob({
+          audioData: uint8Array,
           modelPath: status.path
         });
 
@@ -161,6 +161,7 @@ class STTService {
         }
       } catch (error) {
         if (this.onEnd) this.onEnd();
+        console.error('[STT] Transcription error:', error);
         throw new Error(`Local transcription failed: ${error.message}`);
       }
     }
@@ -218,7 +219,7 @@ class STTService {
       this.onError = (error) => {
         let errorMessage = error;
         if (error === 'network') {
-          errorMessage = 'network (internet connection required for Web Speech API)';
+          errorMessage = 'Web Speech API is not supported in Electron apps (Google blocks requests from non-browser environments). Please use Offline Mode with the downloaded Whisper model instead.';
         }
         reject(new Error(`Recognition error: ${errorMessage}`));
       };

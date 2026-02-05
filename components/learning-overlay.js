@@ -17,8 +17,9 @@ class LearningOverlay {
       this.overlay.className = 'learning-overlay hidden';
       this.overlay.innerHTML = this.getTemplate();
       document.body.appendChild(this.overlay);
-      this.bindEvents();
     }
+    // Always bind events, whether overlay existed or was just created
+    this.bindEvents();
   }
 
   getTemplate() {
@@ -401,35 +402,87 @@ class LearningOverlay {
   }
 
   loadQuiz(topic) {
-    const quizzes = {
-      basics: {
-        question: 'What command shows the current state of your working directory?',
-        options: ['git log', 'git status', 'git show', 'git diff'],
-        correct: 1
-      },
-      branching: {
-        question: 'What command creates a new branch called "feature"?',
-        options: ['git new feature', 'git branch feature', 'git create feature', 'git make feature'],
-        correct: 1
-      },
-      remote: {
-        question: 'What does "git push" do?',
-        options: [
-          'Downloads changes from remote',
-          'Uploads local commits to remote',
-          'Creates a new branch',
-          'Shows commit history'
-        ],
-        correct: 1
-      },
-      workflow: {
-        question: 'What should you do before pushing your changes?',
-        options: ['Delete branches', 'Pull latest changes', 'Clear the cache', 'Restart Git'],
-        correct: 1
-      }
+    // Quiz bank with varied correct answer positions
+    const quizBank = {
+      basics: [
+        {
+          question: 'What command shows the current state of your working directory?',
+          options: ['git log', 'git show', 'git status', 'git diff'],
+          correct: 2
+        },
+        {
+          question: 'What does "git init" do?',
+          options: ['Creates a new Git repository', 'Starts the Git daemon', 'Initializes a remote', 'Imports files'],
+          correct: 0
+        },
+        {
+          question: 'Which command stages all changes for commit?',
+          options: ['git commit -a', 'git stage .', 'git push .', 'git add .'],
+          correct: 3
+        }
+      ],
+      branching: [
+        {
+          question: 'What command creates a new branch called "feature"?',
+          options: ['git new feature', 'git create feature', 'git make feature', 'git branch feature'],
+          correct: 3
+        },
+        {
+          question: 'How do you switch to an existing branch called "develop"?',
+          options: ['git switch develop', 'git move develop', 'git go develop', 'git jump develop'],
+          correct: 0
+        },
+        {
+          question: 'What command deletes a local branch?',
+          options: ['git remove branch', 'git delete branch', 'git branch -d name', 'git branch --remove'],
+          correct: 2
+        }
+      ],
+      remote: [
+        {
+          question: 'What does "git push" do?',
+          options: [
+            'Downloads changes from remote',
+            'Creates a new branch',
+            'Uploads local commits to remote',
+            'Shows commit history'
+          ],
+          correct: 2
+        },
+        {
+          question: 'What does "git fetch" do?',
+          options: ['Pushes changes', 'Deletes remote', 'Merges branches', 'Downloads remote changes without merging'],
+          correct: 3
+        },
+        {
+          question: 'What is the default name for the primary remote repository?',
+          options: ['main', 'master', 'remote', 'origin'],
+          correct: 3
+        }
+      ],
+      workflow: [
+        {
+          question: 'What should you do before pushing your changes?',
+          options: ['Pull latest changes', 'Delete branches', 'Clear the cache', 'Restart Git'],
+          correct: 0
+        },
+        {
+          question: 'What is the typical order of operations when saving changes?',
+          options: ['push, commit, add', 'add, commit, push', 'commit, push, add', 'push, add, commit'],
+          correct: 1
+        },
+        {
+          question: 'When should you create a new branch?',
+          options: ['After finishing work', 'Before starting new work', 'Only for emergencies', 'Never'],
+          correct: 1
+        }
+      ]
     };
 
-    const quiz = quizzes[topic] || quizzes.basics;
+    // Get quizzes for the topic, or fall back to basics
+    const topicQuizzes = quizBank[topic] || quizBank.basics;
+    // Pick a random quiz from the topic
+    const quiz = topicQuizzes[Math.floor(Math.random() * topicQuizzes.length)];
     const questionEl = this.overlay.querySelector('#quiz-question');
     const optionsEl = this.overlay.querySelector('#quiz-options');
     const resultEl = this.overlay.querySelector('#quiz-result');
