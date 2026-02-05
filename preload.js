@@ -29,12 +29,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Voice activation listener
   onVoiceActivate: (callback) => {
-    ipcRenderer.on('voice-activate', () => callback());
+    const subscription = () => callback();
+    ipcRenderer.on('voice-activate', subscription);
+    return () => ipcRenderer.removeListener('voice-activate', subscription);
   },
 
   // Voice feedback
   onVoiceFeedback: (callback) => {
-    ipcRenderer.on('voice-feedback', (event, text) => callback(text));
+    const subscription = (event, text) => callback(text);
+    ipcRenderer.on('voice-feedback', subscription);
+    return () => ipcRenderer.removeListener('voice-feedback', subscription);
   },
 
   // Credential management

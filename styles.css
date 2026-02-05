@@ -1503,3 +1503,10 @@ body {
   font-size: 0.9em;
   min-height: 20px;
 }
+
+/* Utility classes for CSP compliance */
+.text-success { color: var(--success-color) !important; }
+.text-error { color: var(--error-color) !important; }
+.text-warning { color: var(--warning-color) !important; }
+.text-muted-alt { color: var(--text-muted) !important; }
+.border-error { border-color: var(--error-color) !important; }

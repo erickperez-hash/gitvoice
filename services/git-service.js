@@ -6,52 +6,6 @@ class GitService {
     this.hasExecutedCommand = false;
   }
 
-  // Each operation returns both result and educational context
-  async executeWithContext(command, description) {
-    const startTime = Date.now();
-
-    // Build educational context
-    const context = this.explainer.explainCommand(command);
-    context.description = description; // Override with natural language
-
-    try {
-      // Parse command to get args
-      const parts = command.split(' ');
-      const args = parts.slice(1); // Remove 'git'
-
-      // Execute via IPC
-      const result = await window.electronAPI.gitExecute(command, args);
-      const duration = Date.now() - startTime;
-
-      if (result.success) {
-        this.hasExecutedCommand = true;
-      }
-
-      let output = result.output || result.error;
-
-      // Add helpful tip for authentication errors
-      if (!result.success && output && (output.includes('403') || output.toLowerCase().includes('permission denied'))) {
-        output += '\n\n[Auth Tip] This looks like a permission issue. Please verify your GitHub Credentials in the Settings panel.';
-      }
-
-      return {
-        success: result.success,
-        output: output,
-        command: command,
-        context: context,
-        duration: duration,
-        exitCode: result.exitCode
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error.message,
-        command: command,
-        context: context
-      };
-    }
-  }
-
   async getStatus() {
     try {
       const result = await window.electronAPI.gitStatus();
@@ -271,30 +225,6 @@ class GitService {
     } catch (error) {
       return { success: false, error: error.message };
     }
-  }
-
-  // Parse status output for UI display
-  parseStatusOutput(output) {
-    const lines = output.split('\n').filter(l => l.trim());
-    const files = [];
-
-    lines.forEach(line => {
-      if (line.startsWith('##')) return; // Skip branch line
-
-      const status = line.substring(0, 2);
-      const filename = line.substring(3);
-
-      let type = 'unknown';
-      if (status.includes('M')) type = 'modified';
-      else if (status.includes('A')) type = 'staged';
-      else if (status === '??') type = 'untracked';
-      else if (status.includes('D')) type = 'deleted';
-      else if (status.includes('R')) type = 'renamed';
-
-      files.push({ status, filename, type });
-    });
-
-    return files;
   }
 
   // Get context for LLM intent parsing

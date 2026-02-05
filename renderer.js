@@ -359,9 +359,9 @@ function copyUserCode() {
   const code = document.getElementById('device-user-code').textContent;
   navigator.clipboard.writeText(code);
   const btn = document.getElementById('auth-copy-btn');
-  const originalText = btn.innerHTML;
-  btn.innerHTML = '<span class="icon">&#10004;</span> Copied!';
-  setTimeout(() => btn.innerHTML = originalText, 2000);
+  const originalText = btn.textContent;
+  btn.textContent = '✓ Copied!';
+  setTimeout(() => btn.textContent = originalText, 2000);
 }
 
 function openGitHubLogin() {
@@ -450,7 +450,11 @@ async function refreshGitStatus() {
     if (result.success) {
       displayGitStatus(result);
     } else {
-      elements.gitStatus.innerHTML = `<span class="placeholder">Error: ${result.error}</span>`;
+      elements.gitStatus.innerHTML = '';
+      const span = document.createElement('span');
+      span.className = 'placeholder';
+      span.textContent = `Error: ${result.error}`;
+      elements.gitStatus.appendChild(span);
     }
   } catch (error) {
     console.error('Error getting status:', error);
@@ -467,7 +471,7 @@ function displayGitStatus(result) {
   }
 
   if (data?.clean) {
-    html += '<div class="status-item"><span style="color: var(--success-color);">Working directory clean</span></div>';
+    html += '<div class="status-item"><span class="text-success">Working directory clean</span></div>';
   } else {
     if (data?.modified > 0) {
       html += `<div class="status-item"><span class="status-badge modified">Modified</span> ${data.modified} file(s)</div>`;
@@ -952,7 +956,7 @@ function loadSettings() {
 }
 
 // Load settings after services are initialized
-setTimeout(loadSettings, 100);
+loadSettings();
 
 // ============================================
 // Practice Mode
@@ -1089,7 +1093,7 @@ function updateCredentialStatus(services) {
   } else {
     statusEl.innerHTML = `
       <div class="flex-center flex-column">
-        <span class="success" style="color: var(--success-color);">✓ Connected as ${escapeHTML(githubCred.username)}</span>
+        <span class="text-success">✓ Connected as ${escapeHTML(githubCred.username)}</span>
         <button id="github-signout-btn" class="btn btn-secondary btn-small mt-5">Disconnect</button>
       </div>
     `;

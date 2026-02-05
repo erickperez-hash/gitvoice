@@ -149,12 +149,12 @@ class CommandModal {
 
       // Visual feedback
       const btn = this.elements.copyCommand;
-      const originalText = btn.innerHTML;
-      btn.innerHTML = '<span class="copy-icon">&#10004;</span> Copied!';
+      const originalText = btn.textContent;
+      btn.textContent = '✓ Copied!';
       btn.classList.add('copied');
 
       setTimeout(() => {
-        btn.innerHTML = originalText;
+        btn.textContent = originalText;
         btn.classList.remove('copied');
       }, 2000);
     } catch (error) {
@@ -184,8 +184,8 @@ class CommandModal {
     // Update modal for error display
     if (this.elements.actionDescription) {
       this.elements.actionDescription.innerHTML = `
-        <span style="color: #f56565;">&#9888;</span>
-        ${errorData.title || 'An Error Occurred'}
+        <span class="text-error">&#9888;</span>
+        ${this.escapeHtml(errorData.title || 'An Error Occurred')}
       `;
     }
 
@@ -195,7 +195,7 @@ class CommandModal {
 
     if (this.elements.commandOutput) {
       this.elements.commandOutput.innerHTML = `
-        <span style="color: #f56565;">ERROR: ${this.escapeHtml(errorData.message || 'Unknown error')}</span>
+        <span class="text-error">ERROR: ${this.escapeHtml(errorData.message || 'Unknown error')}</span>
       `;
     }
 
@@ -206,8 +206,8 @@ class CommandModal {
     // Show explanation in breakdown area
     if (this.elements.commandParts && errorData.explanation) {
       this.elements.commandParts.innerHTML = `
-        <div class="command-part" style="border-color: #f56565;">
-          <code style="color: #f56565;">What went wrong</code>
+        <div class="command-part border-error">
+          <code class="text-error">What went wrong</code>
           <p>${this.escapeHtml(errorData.explanation)}</p>
         </div>
       `;
@@ -219,7 +219,7 @@ class CommandModal {
   showSuccess(successData) {
     if (this.elements.commandOutput) {
       this.elements.commandOutput.innerHTML = `
-        <span style="color: #48bb78;">&#10004;</span> ${this.escapeHtml(successData.message || 'Command completed successfully')}
+        <span class="text-success">&#10004;</span> ${this.escapeHtml(successData.message || 'Command completed successfully')}
         ${successData.output ? '\n\n' + this.escapeHtml(successData.output) : ''}
       `;
     }
@@ -554,7 +554,7 @@ class CommandModal {
 
     if (this.elements.actionDescription) {
       this.elements.actionDescription.innerHTML = `
-        <span style="color: #ed8936;">&#9888; PRACTICE MODE</span> - No actual changes made
+        <span class="text-warning">&#9888; PRACTICE MODE</span> - No actual changes made
         <br><br>
         <strong>This command would:</strong> ${this.escapeHtml(simulation.wouldDo)}
       `;
@@ -566,7 +566,7 @@ class CommandModal {
 
     if (this.elements.commandOutput) {
       this.elements.commandOutput.innerHTML = `
-        <span style="color: #718096;">[Simulated Output]</span>\n\n${this.escapeHtml(simulation.output)}
+        <span class="text-muted-alt">[Simulated Output]</span>\n\n${this.escapeHtml(simulation.output)}
       `;
     }
 

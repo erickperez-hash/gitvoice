@@ -8,13 +8,13 @@ class ModelDownloader {
         name: 'Whisper Tiny (ONNX)',
         folder: 'whisper-tiny.en',
         files: [
-          { name: 'config.json', url: 'https://huggingface.co/Xenova/whisper-tiny.en/resolve/main/config.json' },
-          { name: 'tokenizer.json', url: 'https://huggingface.co/Xenova/whisper-tiny.en/resolve/main/tokenizer.json' },
-          { name: 'tokenizer_config.json', url: 'https://huggingface.co/Xenova/whisper-tiny.en/resolve/main/tokenizer_config.json' },
-          { name: 'preprocessor_config.json', url: 'https://huggingface.co/Xenova/whisper-tiny.en/resolve/main/preprocessor_config.json' },
-          { name: 'generation_config.json', url: 'https://huggingface.co/Xenova/whisper-tiny.en/resolve/main/generation_config.json' },
-          { name: 'onnx/encoder_model_quantized.onnx', url: 'https://huggingface.co/Xenova/whisper-tiny.en/resolve/main/onnx/encoder_model_quantized.onnx' },
-          { name: 'onnx/decoder_model_merged_quantized.onnx', url: 'https://huggingface.co/Xenova/whisper-tiny.en/resolve/main/onnx/decoder_model_merged_quantized.onnx' }
+          { name: 'config.json', url: 'https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/config.json' },
+          { name: 'tokenizer.json', url: 'https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/tokenizer.json' },
+          { name: 'tokenizer_config.json', url: 'https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/tokenizer_config.json' },
+          { name: 'preprocessor_config.json', url: 'https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/preprocessor_config.json' },
+          { name: 'generation_config.json', url: 'https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/generation_config.json' },
+          { name: 'onnx/encoder_model_quantized.onnx', url: 'https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/onnx/encoder_model_quantized.onnx' },
+          { name: 'onnx/decoder_model_merged_quantized.onnx', url: 'https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/onnx/decoder_model_merged_quantized.onnx' }
         ],
         size: '45MB',
         downloaded: false

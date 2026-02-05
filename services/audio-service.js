@@ -238,21 +238,28 @@ class AudioService {
   }
 
   async recordWithVAD() {
-    return new Promise(async (resolve, reject) => {
-      const initialized = await this.startListening();
-      if (!initialized) {
-        reject(new Error('Failed to initialize audio'));
-        return;
-      }
+    const initialized = await this.startListening();
+    if (!initialized) {
+      throw new Error('Failed to initialize audio');
+    }
 
+    return new Promise((resolve, reject) => {
       let recordedBlob = null;
+      let timeoutId = null;
+
+      const cleanup = () => {
+        if (timeoutId) clearTimeout(timeoutId);
+        this.onAudioData = null;
+        this.onSpeechEnd = null;
+        this.stopListening();
+      };
 
       this.onAudioData = (blob) => {
         recordedBlob = blob;
       };
 
       this.onSpeechEnd = async () => {
-        this.stopListening();
+        cleanup();
 
         // Give a tiny bit of time for any pending chunks
         if (!recordedBlob) {
@@ -267,16 +274,26 @@ class AudioService {
       };
 
       // Timeout after 30 seconds
-      setTimeout(async () => {
+      timeoutId = setTimeout(async () => {
         if (this.isListening) {
           console.log('[Audio] Recording timeout reached');
 
           if (this.isRecording) {
-            console.log('[Audio] Timeout occurred during active recording - forcing stop and processing');
-            await this.stopRecording();
-            // onSpeechEnd will be called by stopRecording().then(...) in monitorVAD
+            console.log('[Audio] Timeout occurred during active recording - forcing stop');
+            try {
+              const blob = await this.stopRecording();
+              cleanup();
+              if (blob) {
+                resolve(blob);
+              } else {
+                reject(new Error('No audio recorded (timeout)'));
+              }
+            } catch (err) {
+              cleanup();
+              reject(err);
+            }
           } else {
-            this.stopListening();
+            cleanup();
             reject(new Error('No speech detected within 30 seconds'));
           }
         }

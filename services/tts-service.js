@@ -190,7 +190,7 @@ class TTSService {
   }
 
   isSpeaking() {
-    return this.speaking || this.synth.speaking;
+    return this.speaking || (this.synth && this.synth.speaking);
   }
 
   setUseLocalModel(enabled) {

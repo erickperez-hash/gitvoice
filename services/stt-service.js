@@ -110,6 +110,7 @@ class STTService {
     if (this.recognition && this.isListening) {
       this.recognition.stop();
     }
+    this.isListening = false;
   }
 
   abort() {
@@ -149,8 +150,11 @@ class STTService {
         }
 
         console.log('[STT] Sending resampled audio (16kHz) to main process...');
+        // Convert Float32Array to regular Array for reliable IPC serialization
+        const audioDataArray = Array.from(float32Data);
+
         const result = await window.electronAPI.transcribeLocal({
-          audioData: float32Data,
+          audioData: audioDataArray,
           modelPath: status.path
         });
 

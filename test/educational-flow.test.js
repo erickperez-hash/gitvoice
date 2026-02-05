@@ -1,4 +1,7 @@
 /**
+ * @jest-environment jsdom
+ */
+/**
  * GitVoice Educational Flow Tests
  * Tests for the educational features of GitVoice
  */
@@ -53,8 +56,8 @@ describe('Educational Flow Tests', () => {
 
     practiceMode = {
       enabled: false,
-      toggle: jest.fn(function() { this.enabled = !this.enabled; return this.enabled; }),
-      isEnabled: jest.fn(function() { return this.enabled; }),
+      toggle: jest.fn(function () { this.enabled = !this.enabled; return this.enabled; }),
+      isEnabled: jest.fn(function () { return this.enabled; }),
       simulateCommand: jest.fn((cmd) => ({
         command: cmd,
         description: 'Simulated command',
@@ -309,7 +312,7 @@ describe('Error Handling Tests', () => {
 describe('Credential Management Tests', () => {
   test('validates token format', () => {
     const validateToken = (token) => {
-      return token && token.length > 10;
+      return !!(token && token.length > 10);
     };
 
     expect(validateToken('ghp_abcdefghijklmnop')).toBe(true);

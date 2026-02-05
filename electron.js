@@ -104,6 +104,19 @@ ipcMain.handle('git-execute', async (event, { command, args }) => {
     return { success: false, error: 'No repository selected' };
   }
 
+  // SEC-005: Git Command Validation (Whitelisting)
+  const allowedCommands = ['status', 'add', 'commit', 'push', 'pull', 'branch', 'checkout', 'clone', 'log', 'diff', 'merge', 'stash', 'fetch', 'remote', 'init'];
+
+  // Extract base command (e.g., 'status' from 'git status')
+  const baseCommand = command.trim().split(' ')[0] === 'git'
+    ? command.trim().split(' ')[1]
+    : command.trim().split(' ')[0];
+
+  if (!allowedCommands.includes(baseCommand)) {
+    console.warn(`[Security] Blocked unauthorized Git command: ${baseCommand}`);
+    return { success: false, error: `Unauthorized command: ${baseCommand}` };
+  }
+
   try {
     let remoteUrl = null;
     let modifiedArgs = [...args];
@@ -210,7 +223,7 @@ ipcMain.handle('git-status', async () => {
   try {
     console.log('[Electron] executing git-status...');
 
-    // Create a timeout promise (reduced to 3s for responsiveness)
+    // Create a timeout promise (10s for responsiveness)
     const timeoutPromise = new Promise((_, reject) =>
       setTimeout(() => reject(new Error('git status timed out')), 10000)
     );
@@ -225,10 +238,6 @@ ipcMain.handle('git-status', async () => {
     if (result.exitCode === 0) {
       // Parse output
       const output = result.stdout;
-      // ... same parsing logic as before ...
-      // But actually, we just return the raw output and the renderer parses it?
-      // Wait, the previous code parsed it here?
-      // Let's look at the original code. It was handling logic here.
 
       const lines = output.split('\n');
       const branchLine = lines.find(l => l.startsWith('##'));
@@ -568,6 +577,11 @@ ipcMain.handle('get-repo-path', () => {
 
 // Set repository path
 ipcMain.handle('set-repo-path', (event, repoPath) => {
+  if (!repoPath || typeof repoPath !== 'string' || repoPath.includes('..') || repoPath.includes('~')) {
+    console.warn('[Security] Invalid or suspicious repository path rejected:', repoPath);
+    return { success: false, error: 'Invalid repository path' };
+  }
+
   currentRepoPath = repoPath;
   return { success: true };
 });
@@ -716,16 +730,6 @@ ipcMain.handle('set-hotkey', (event, newHotkey) => {
   } catch (error) {
     return { success: false, error: error.message };
   }
-});
-
-// ============================================
-// Audio Device Management
-// ============================================
-
-ipcMain.handle('get-audio-devices', async () => {
-  // This will be handled in renderer process using navigator.mediaDevices
-  // Just return success to indicate the feature is available
-  return { success: true };
 });
 
 // Settings Persistence

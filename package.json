@@ -1,11 +1,13 @@
 {
   "name": "gitvoice",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Learn Git Through Voice - An educational desktop application that teaches you Git commands while letting you control your repository with your voice.",
   "main": "electron.js",
+  "author": "Erick Perez <erp@example.com>",
   "scripts": {
     "start": "electron .",
-    "test": "jest"
+    "test": "jest",
+    "rebuild": "electron-rebuild"
   },
   "keywords": [
     "git",
@@ -15,23 +17,17 @@
     "speech-to-text",
     "tts"
   ],
-  "author": "",
   "license": "MIT",
   "dependencies": {
     "@huggingface/transformers": "^3.8.1",
-    "axios": "^1.7.9",
+    "axios": "^1.13.4",
     "dugite": "^3.0.0",
-    "onnxruntime-node": "1.23.2",
     "wavefile": "^11.0.0"
-  },
-  "overrides": {
-    "onnxruntime-common": "1.23.2",
-    "onnxruntime-web": "1.23.2",
-    "onnxruntime-node": "1.23.2"
   },
   "devDependencies": {
     "@electron/rebuild": "^4.0.3",
-    "electron": "^40.0.0",
-    "jest": "^29.7.0"
+    "electron": "^40.1.0",
+    "jest": "^29.7.0",
+    "jest-environment-jsdom": "^30.2.0"
   }
 }

@@ -58,10 +58,15 @@ class NarrationService {
     }
 
     if (message) {
+      // SEC-006: Sanitize error messages (strip tokens)
+      const sanitizedMessage = typeof message === 'string'
+        ? message.replace(/ghp_[a-zA-Z0-9]{36}|[0-9a-f]{40}/g, '[TOKEN]')
+        : message;
+
       if (awaitSpeech) {
-        await this.speak(message);
+        await this.speak(sanitizedMessage);
       } else {
-        this.speak(message).catch(err => console.warn('Background narration failed:', err));
+        this.speak(sanitizedMessage).catch(err => console.warn('Background narration failed:', err));
       }
     }
   }
