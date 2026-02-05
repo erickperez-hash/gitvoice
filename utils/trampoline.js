@@ -258,10 +258,6 @@ class Trampoline {
 
       const result = await GitProcess.exec(['ls-remote', testUrl], tempDir, { env });
 
-      // Clean up temp script
-      if (fs.existsSync(askPassPath)) fs.unlinkSync(askPassPath);
-      if (fs.existsSync(askPassPath + '.bat')) fs.unlinkSync(askPassPath + '.bat');
-
       const output = (result.stdout + result.stderr).toLowerCase();
 
       if (output.includes('authentication failed')) {
@@ -272,9 +268,15 @@ class Trampoline {
     } catch (error) {
       return { valid: false, error: error.message };
     } finally {
+      // Clean up temp scripts and directory
+      const askPassPath = path.join(os.tmpdir(), 'gitvoice-askpass');
       try {
+        if (fs.existsSync(askPassPath)) fs.unlinkSync(askPassPath);
+        if (fs.existsSync(askPassPath + '.bat')) fs.unlinkSync(askPassPath + '.bat');
         fs.rmSync(tempDir, { recursive: true, force: true });
-      } catch (e) { }
+      } catch (e) {
+        console.error('Cleanup failed:', e);
+      }
     }
   }
 
